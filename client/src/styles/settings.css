@@ -1,0 +1,140 @@
+.settings-screen {
+  width: 100%;
+  padding: 20px;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid rgba(0, 123, 255, 0.3);
+}
+
+.settings-header h2 {
+  margin: 0 0 6px;
+  color: var(--text-light);
+  font-size: 24px;
+}
+
+.settings-header p {
+  margin: 0;
+  color: var(--text-lighter);
+  font-size: 13px;
+}
+
+.settings-header button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary-color) 0%, #0056b3 100%);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.settings-card {
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.settings-card h3 {
+  margin: 0 0 12px;
+  color: var(--text-light);
+  font-size: 16px;
+}
+
+.settings-card dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.settings-card dl div {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-card dt {
+  color: var(--text-lighter);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-card dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-light);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.settings-log {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: #d7e6ff;
+  background: rgba(0, 0, 0, 0.38);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.settings-error {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  border-radius: 8px;
+  color: #ff6b6b;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: #e50914;
+}
+
+.settings-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-toggle strong {
+  color: var(--text-light);
+  font-size: 14px;
+}
+
+.settings-toggle small {
+  color: var(--text-lighter);
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .settings-header,
+  .settings-grid {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "name": "wallpaper-app-desktop",
+  "version": "1.0.0",
+  "description": "Aplicación de escritorio para wallpapers con integración Wallpaper Engine",
+  "main": "electron/main.js",
+  "private": true,
+  "homepage": "./",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "install-all": "npm install && npm install --workspace=server && npm install --workspace=client",
+    "dev": "concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=client\" \"electron .\"",
+    "dev-web": "npm run dev --workspace=server & npm run dev --workspace=client",
+    "build": "npm run build --workspace=client",
+    "start": "npm start --workspace=server",
+    "electron-dev": "electron .",
+    "electron-build": "npm run build && electron-builder",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist-win": "electron-builder --win --publish never",
+    "test": "npm test --workspace=server && npm test --workspace=client"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.1",
+    "node-powershell": "^4.0.0"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "com.wallpaper-app.desktop",
+    "productName": "Wallpaper App",
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "tools/**/*",
+      "package.json",
+      "server/**/*",
+      "node_modules/**/*",
+      "!node_modules/electron/**/*",
+      "!node_modules/electron-builder/**/*"
+    ],
+    "asarUnpack": [
+      "server/**/*",
+      "tools/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "certificateFile": null,
+      "certificatePassword": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable.exe"
+    }
+  },
+  "keywords": [
+    "wallpaper",
+    "gallery",
+    "gif",
+    "video",
+    "gpu-optimized",
+    "electron",
+    "desktop",
+    "steam",
+    "wallpaper-engine"
+  ],
+  "author": "Wallpaper App Team",
+  "license": "MIT"
+}

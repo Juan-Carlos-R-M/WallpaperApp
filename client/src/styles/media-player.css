@@ -1,0 +1,40 @@
+.media-player {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.media-image,
+.media-gif,
+.media-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  will-change: auto;
+}
+
+.media-video {
+  /* Optimización GPU para videos */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Lazy loading placeholder */
+.media-image[loading="lazy"],
+.media-gif[loading="lazy"] {
+  background: linear-gradient(45deg, #1a1a1a 25%, #252525 25%, #252525 50%, #1a1a1a 50%, #1a1a1a 75%, #252525 75%, #252525);
+  background-size: 20px 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-image,
+  .media-gif,
+  .media-video {
+    animation: none !important;
+    transition: none !important;
+  }
+}
