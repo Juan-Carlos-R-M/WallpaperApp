@@ -118,6 +118,7 @@ class WorkshopService {
         fileSize: 0,
         timeCreated: 0,
         timeUpdated: 0,
+        mediaType: 'workshop',
         tags: []
       });
     }
@@ -185,6 +186,7 @@ class WorkshopService {
     }
 
     const tempDir = path.join(this.downloadRoot, 'incoming', String(publishedFileId));
+    const cacheDir = path.join(this.downloadRoot, String(publishedFileId));
     const targetDir = path.join(targetRoot, String(publishedFileId));
     fs.rmSync(tempDir, { recursive: true, force: true });
     fs.mkdirSync(tempDir, { recursive: true });
@@ -208,6 +210,7 @@ class WorkshopService {
 
     const rawDownloadedDir = tool.type === 'steamcmd' ? steamCmdContentDir : tempDir;
     const projectDir = this.findProjectRoot(rawDownloadedDir);
+    this.copyProjectDirectory(projectDir, cacheDir);
     this.copyProjectToMyProjects(projectDir, targetDir);
 
     const wallpaper = this.steamReader.readWallpaperFromProject(targetDir, String(publishedFileId));
@@ -217,6 +220,32 @@ class WorkshopService {
       path: targetDir,
       downloadRoot: targetRoot,
       wallpaper
+    };
+  }
+
+  async deleteWallpaper({ publishedFileId }) {
+    if (!publishedFileId) {
+      throw new Error('Falta el ID de Workshop.');
+    }
+
+    const id = String(publishedFileId);
+    const enginePaths = await this.steamReader.constructor.getWallpaperEnginePaths();
+    const candidates = [
+      enginePaths.myProjectsPath && path.join(enginePaths.myProjectsPath, id),
+      path.join(this.downloadRoot, id),
+      path.join(this.downloadRoot, 'incoming', id)
+    ].filter(Boolean);
+    const deleted = [];
+
+    for (const candidate of candidates) {
+      if (!fs.existsSync(candidate)) continue;
+      fs.rmSync(candidate, { recursive: true, force: true });
+      deleted.push(candidate);
+    }
+
+    return {
+      deleted,
+      publishedFileId: id
     };
   }
 
@@ -247,6 +276,10 @@ class WorkshopService {
   }
 
   copyProjectToMyProjects(sourceDir, targetDir) {
+    this.copyProjectDirectory(sourceDir, targetDir);
+  }
+
+  copyProjectDirectory(sourceDir, targetDir) {
     if (!fs.existsSync(sourceDir)) {
       throw new Error(`La descarga termino, pero no encontre el contenido descargado en ${sourceDir}`);
     }
@@ -287,6 +320,7 @@ class WorkshopService {
   normalizeWorkshopItem(item) {
     const preview = this.getBestPreview(item);
     const tags = Array.isArray(item.tags) ? item.tags.map(tag => tag.tag).filter(Boolean) : [];
+    const mediaType = this.inferWorkshopMediaType(tags);
 
     return {
       publishedFileId: String(item.publishedfileid || ''),
@@ -301,8 +335,19 @@ class WorkshopService {
       fileSize: Number(item.file_size || item.consumer_app_id || 0),
       timeCreated: Number(item.time_created || 0),
       timeUpdated: Number(item.time_updated || 0),
+      mediaType,
       tags
     };
+  }
+
+  inferWorkshopMediaType(tags = []) {
+    const normalizedTags = tags.map(tag => String(tag).toLowerCase());
+
+    if (normalizedTags.includes('video')) return 'video';
+    if (normalizedTags.includes('web')) return 'web';
+    if (normalizedTags.includes('application')) return 'application';
+    if (normalizedTags.includes('scene')) return 'scene';
+    return 'workshop';
   }
 
   getBestPreview(item) {

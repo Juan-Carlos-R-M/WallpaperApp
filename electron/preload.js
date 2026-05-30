@@ -2,12 +2,15 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getSteamWallpapers: () => ipcRenderer.invoke('get-steam-wallpapers'),
+  getDownloadedWallpapers: () => ipcRenderer.invoke('get-downloaded-wallpapers'),
   setSteamPath: (path) => ipcRenderer.invoke('set-steam-path', path),
   setWallpaper: (wallpaperPath) => ipcRenderer.invoke('set-wallpaper', wallpaperPath),
+  downloadWallpaperFile: (options) => ipcRenderer.invoke('download-wallpaper-file', options),
   getSteamPath: () => ipcRenderer.invoke('get-steam-path'),
   searchSteamWallpapers: (query) => ipcRenderer.invoke('search-steam-wallpapers', query),
   searchWorkshopWallpapers: (options) => ipcRenderer.invoke('search-workshop-wallpapers', options),
   downloadWorkshopWallpaper: (options) => ipcRenderer.invoke('download-workshop-wallpaper', options),
+  deleteWorkshopWallpaper: (options) => ipcRenderer.invoke('delete-workshop-wallpaper', options),
   getWorkshopDownloaderStatus: () => ipcRenderer.invoke('get-workshop-downloader-status'),
   getAppLogInfo: () => ipcRenderer.invoke('get-app-log-info'),
   readAppLog: () => ipcRenderer.invoke('read-app-log'),

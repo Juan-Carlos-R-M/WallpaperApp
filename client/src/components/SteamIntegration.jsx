@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { toPlayableUrl } from '../utils/mediaUrl';
 import '../styles/steam-integration.css';
 
 const FILTER_STORAGE_KEY = 'wallpaperApp.workshopFilters';
@@ -77,13 +78,35 @@ const formatDate = (timestamp) => {
   return new Date(timestamp * 1000).toLocaleDateString();
 };
 
-const toPlayableUrl = (value = '') => {
-  if (!value || String(value).startsWith('file:') || String(value).startsWith('http')) return value;
-  if (/^[a-zA-Z]:\\/.test(value)) {
-    return encodeURI(`file:///${value.replace(/\\/g, '/')}`);
-  }
+const isVideoWallpaper = (wallpaper = {}) => {
+  const mediaUrl = [wallpaper.playbackUrl, wallpaper.mediaUrl, wallpaper.localPath].filter(Boolean).join(' ');
+  return String(wallpaper.mediaType || '').toLowerCase() === 'video' || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i.test(mediaUrl);
+};
 
-  return value;
+const isSceneWallpaper = (wallpaper = {}) => (
+  ['scene', 'web', 'application'].includes(String(wallpaper.mediaType || '').toLowerCase())
+);
+
+const getWallpaperId = (wallpaper = {}) => String(wallpaper.publishedFileId || '');
+
+const mergeDownloadedWallpaper = (workshopWallpaper = {}, downloadedWallpaper = null) => {
+  if (!downloadedWallpaper) return workshopWallpaper;
+
+  return {
+    ...workshopWallpaper,
+    ...downloadedWallpaper,
+    publishedFileId: getWallpaperId(workshopWallpaper) || getWallpaperId(downloadedWallpaper),
+    title: workshopWallpaper.title || downloadedWallpaper.title,
+    author: workshopWallpaper.author || downloadedWallpaper.author,
+    description: workshopWallpaper.description || downloadedWallpaper.description,
+    tags: workshopWallpaper.tags?.length ? workshopWallpaper.tags : downloadedWallpaper.tags,
+    previewUrl: downloadedWallpaper.previewUrl || workshopWallpaper.previewUrl,
+    fileSize: workshopWallpaper.fileSize || downloadedWallpaper.fileSize,
+    subscriptions: workshopWallpaper.subscriptions,
+    favorited: workshopWallpaper.favorited,
+    score: workshopWallpaper.score,
+    url: workshopWallpaper.url
+  };
 };
 
 const formatPlaybackTime = (seconds = 0) => {
@@ -97,11 +120,14 @@ const WorkshopDetailScreen = ({
   wallpaper,
   relatedWallpapers,
   isFavorite,
+  isDownloaded,
   downloadingId,
+  deletingId,
   downloaderReady,
   onBack,
   onOpen,
   onDownload,
+  onDelete,
   onToggleFavorite
 }) => {
   const videoRef = useRef(null);
@@ -109,7 +135,10 @@ const WorkshopDetailScreen = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const tags = wallpaper.tags?.length ? wallpaper.tags.slice(0, 6) : ['Workshop', 'Wallpaper Engine'];
-  const videoUrl = wallpaper.mediaType === 'video' && wallpaper.mediaUrl ? toPlayableUrl(wallpaper.mediaUrl) : '';
+  const wallpaperId = getWallpaperId(wallpaper);
+  const videoUrl = wallpaper.mediaType === 'video' && (wallpaper.playbackUrl || wallpaper.mediaUrl)
+    ? toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl)
+    : '';
   const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
   const details = [
     ['Tipo', tags[0] || 'Workshop'],
@@ -226,15 +255,27 @@ const WorkshopDetailScreen = ({
             <div><strong>{Number(wallpaper.score || 0).toFixed(1)}</strong><span>Valoracion</span></div>
           </div>
 
-          <div className="detail-primary-actions">
+          <div className={`detail-primary-actions ${isDownloaded ? 'downloaded' : ''}`}>
             <button
               type="button"
               className="detail-download"
               disabled={Boolean(downloadingId) || !downloaderReady}
               onClick={() => onDownload(wallpaper)}
             >
-              {downloadingId === wallpaper.publishedFileId ? 'Descargando...' : 'Descargar Wallpaper'}
+              {downloadingId === wallpaperId
+                ? (isDownloaded ? 'Reparando...' : 'Descargando...')
+                : (isDownloaded ? 'Reparar wallpaper' : 'Descargar Wallpaper')}
             </button>
+            {isDownloaded && (
+              <button
+                type="button"
+                className="detail-delete"
+                disabled={deletingId === wallpaperId}
+                onClick={() => onDelete(wallpaper)}
+              >
+                {deletingId === wallpaperId ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            )}
             <button type="button" className={`detail-like ${isFavorite ? 'liked' : ''}`} onClick={() => onToggleFavorite(wallpaper)}>
               {isFavorite ? 'Me gusta' : 'Me gusta'}
             </button>
@@ -288,14 +329,16 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
   const location = wallpaper.localPath || wallpaper.path || '';
   const size = wallpaper.fileSize ? `${(Number(wallpaper.fileSize) / 1024 / 1024).toFixed(1)} MB` : 'Listo para usar';
   const downloadedAt = new Date().toLocaleString();
+  const videoUrl = isVideoWallpaper(wallpaper) ? toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl) : '';
+  const previewUrl = toPlayableUrl(wallpaper.previewUrl || (!videoUrl ? wallpaper.playbackUrl || wallpaper.mediaUrl : ''));
 
   return (
     <div className="download-confirmation-backdrop">
-      <section className="download-confirmation">
+      <section className="download-confirmation" role="dialog" aria-modal="true" aria-labelledby="download-confirmation-title">
         <header>
           <div className="download-confirmation-icon">↓</div>
           <div>
-            <h2>Wallpaper descargado</h2>
+            <h2 id="download-confirmation-title">Wallpaper descargado</h2>
             <p>El wallpaper se ha descargado correctamente.</p>
           </div>
           <button type="button" className="download-confirmation-close" onClick={onClose}>x</button>
@@ -303,8 +346,10 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
 
         <div className="download-confirmation-body">
           <div className="download-confirmation-preview">
-            {wallpaper.previewUrl ? (
-              <img src={wallpaper.previewUrl} alt={wallpaper.title} />
+            {videoUrl ? (
+              <video src={videoUrl} poster={previewUrl} controls muted loop playsInline preload="metadata" />
+            ) : previewUrl ? (
+              <img src={previewUrl} alt={wallpaper.title} />
             ) : (
               <div>Sin preview</div>
             )}
@@ -356,15 +401,25 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
 
 const WorkshopCard = ({
   wallpaper,
+  downloadedWallpaper,
   isFavorite,
   isDownloading,
+  isDeleting,
   downloaderReady,
   onOpen,
   onDownload,
+  onDelete,
   onToggleFavorite
 }) => {
   const [isNearViewport, setIsNearViewport] = useState(false);
   const cardRef = useRef(null);
+  const isDownloaded = Boolean(downloadedWallpaper);
+  const displayWallpaper = mergeDownloadedWallpaper(wallpaper, downloadedWallpaper);
+  const previewUrl = toPlayableUrl(displayWallpaper.previewUrl || displayWallpaper.playbackUrl || displayWallpaper.mediaUrl || wallpaper.previewUrl);
+  const videoUrl = isVideoWallpaper(displayWallpaper) && (displayWallpaper.playbackUrl || displayWallpaper.mediaUrl)
+    ? toPlayableUrl(displayWallpaper.playbackUrl || displayWallpaper.mediaUrl)
+    : '';
+  const typeLabel = isDownloaded ? displayWallpaper.mediaType || 'instalado' : displayWallpaper.mediaType || 'workshop';
 
   useEffect(() => {
     const node = cardRef.current;
@@ -380,13 +435,22 @@ const WorkshopCard = ({
   }, []);
 
   return (
-    <div className="steam-card workshop-card" ref={cardRef}>
-      <button className="steam-card-click" onClick={() => onOpen(wallpaper)}>
+    <div className={`steam-card workshop-card gallery-workshop-card ${isDownloaded ? 'downloaded' : ''}`} ref={cardRef}>
+      <button className="steam-card-click" onClick={() => onOpen(displayWallpaper)}>
         <div className="steam-card-image">
-          {isNearViewport && wallpaper.previewUrl && (
+          {isNearViewport && videoUrl ? (
+            <video
+              src={videoUrl}
+              poster={previewUrl}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+            />
+          ) : isNearViewport && previewUrl && (
             <img
-              src={wallpaper.previewUrl}
-              alt={wallpaper.title}
+              src={previewUrl}
+              alt={displayWallpaper.title}
               loading="lazy"
               decoding="async"
               onError={(event) => {
@@ -395,18 +459,18 @@ const WorkshopCard = ({
             />
           )}
           <div className="steam-card-overlay">
-            <span className="steam-badge">Workshop</span>
+            <span className="steam-badge">{isDownloaded ? 'Instalado' : typeLabel}</span>
           </div>
         </div>
         <div className="steam-card-info">
-          <h4>{wallpaper.title}</h4>
-          <p className="author">ID: {wallpaper.publishedFileId}</p>
-          {wallpaper.description && (
-            <p className="description">{wallpaper.description}</p>
+          <h4>{displayWallpaper.title}</h4>
+          <p className="author">ID: {displayWallpaper.publishedFileId}</p>
+          {displayWallpaper.description && (
+            <p className="description">{displayWallpaper.description}</p>
           )}
           <div className="workshop-meta">
-            <span>{Number(wallpaper.subscriptions || 0).toLocaleString()} subs</span>
-            <span>{Number(wallpaper.favorited || 0).toLocaleString()} favs</span>
+            <span>{Number(displayWallpaper.subscriptions || 0).toLocaleString()} subs</span>
+            <span>{Number(displayWallpaper.favorited || 0).toLocaleString()} favs</span>
           </div>
         </div>
       </button>
@@ -414,13 +478,34 @@ const WorkshopCard = ({
         <button type="button" className={`icon-action ${isFavorite ? 'liked' : ''}`} onClick={() => onToggleFavorite(wallpaper)}>
           {isFavorite ? 'Me gusta' : 'Me gusta'}
         </button>
-        <button
-          onClick={() => onDownload(wallpaper)}
-          disabled={isDownloading || !downloaderReady}
-          className="set-wallpaper-btn"
-        >
-          {isDownloading ? 'Descargando...' : 'Descargar'}
-        </button>
+        {isDownloaded ? (
+          <>
+            <button
+              type="button"
+              onClick={() => onDownload(displayWallpaper)}
+              disabled={isDownloading || !downloaderReady}
+              className="repair-wallpaper-btn"
+            >
+              {isDownloading ? 'Reparando...' : 'Reparar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(displayWallpaper)}
+              disabled={isDeleting}
+              className="delete-wallpaper-btn"
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar'}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => onDownload(wallpaper)}
+            disabled={isDownloading || !downloaderReady}
+            className="set-wallpaper-btn"
+          >
+            {isDownloading ? 'Descargando...' : 'Descargar'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -447,6 +532,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     password: ''
   });
   const [downloadingId, setDownloadingId] = useState('');
+  const [deletingId, setDeletingId] = useState('');
   const [detailWallpaper, setDetailWallpaper] = useState(null);
   const [downloadConfirmation, setDownloadConfirmation] = useState(null);
   const [showFilters, setShowFilters] = useState(true);
@@ -480,6 +566,17 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   useEffect(() => {
     saveSteamAccounts(steamAccounts.map(account => account.username || account));
   }, [steamAccounts]);
+
+  useEffect(() => {
+    if (!downloadConfirmation) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [downloadConfirmation]);
 
   useEffect(() => {
     if (favoritesOnly || !hasMoreWorkshop || workshopLoading) return undefined;
@@ -571,7 +668,24 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     [favorites]
   );
 
-  const visibleWorkshopWallpapers = favoritesOnly ? favorites : workshopWallpapers;
+  const downloadedById = useMemo(() => {
+    const items = new Map();
+    steamWallpapers.forEach(wallpaper => {
+      const id = getWallpaperId(wallpaper);
+      if (id) items.set(id, wallpaper);
+    });
+    return items;
+  }, [steamWallpapers]);
+
+  const getDownloadedWallpaper = useCallback(
+    (wallpaper) => downloadedById.get(getWallpaperId(wallpaper)) || null,
+    [downloadedById]
+  );
+
+  // Filtrar wallpapers ya descargados de la lista del workshop
+  const visibleWorkshopWallpapers = favoritesOnly 
+    ? favorites 
+    : workshopWallpapers.filter(wallpaper => !downloadedById.has(getWallpaperId(wallpaper)));
 
   const searchWorkshop = async (event, overrides = {}) => {
     event?.preventDefault();
@@ -639,24 +753,37 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const downloadWorkshopWallpaper = async (wallpaper) => {
     try {
       if (!window.electronAPI) return;
+      const wallpaperId = getWallpaperId(wallpaper);
 
       if (!credentials.username.trim()) {
         setWorkshopError('Configura una cuenta Steam en Configuracion antes de descargar.');
         return;
       }
 
-      setDownloadingId(wallpaper.publishedFileId);
+      setDownloadingId(wallpaperId);
       setWorkshopError(null);
 
       const result = await window.electronAPI.downloadWorkshopWallpaper({
-        publishedFileId: wallpaper.publishedFileId,
+        publishedFileId: wallpaperId,
         username: credentials.username,
         password: credentials.password
       });
 
       if (result.success) {
         if (result.data.wallpaper) {
-          setSteamWallpapers(prev => [result.data.wallpaper, ...prev]);
+          const nextWallpaper = {
+            ...result.data.wallpaper,
+            publishedFileId: wallpaperId || result.data.wallpaper.publishedFileId
+          };
+          setSteamWallpapers(prev => [
+            nextWallpaper,
+            ...prev.filter(item => getWallpaperId(item) !== getWallpaperId(nextWallpaper))
+          ]);
+          setDetailWallpaper(current => (
+            current && getWallpaperId(current) === getWallpaperId(nextWallpaper)
+              ? mergeDownloadedWallpaper(current, nextWallpaper)
+              : current
+          ));
         }
         if (shouldShowDownloadConfirmation()) {
           setDownloadConfirmation({
@@ -671,6 +798,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
             localPath: result.data.wallpaper?.localPath || result.data.path
           });
         }
+        loadSteamWallpapers();
       } else {
         setWorkshopError(result.error || 'No se pudo descargar el wallpaper');
       }
@@ -683,10 +811,53 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     }
   };
 
+  const deleteWorkshopWallpaper = async (wallpaper) => {
+    try {
+      if (!window.electronAPI?.deleteWorkshopWallpaper) return;
+
+      const wallpaperId = getWallpaperId(wallpaper);
+      if (!wallpaperId) return;
+
+      const confirmed = window.confirm(`Eliminar "${wallpaper.title}" de Wallpaper Engine?`);
+      if (!confirmed) return;
+
+      setDeletingId(wallpaperId);
+      setWorkshopError(null);
+
+      const result = await window.electronAPI.deleteWorkshopWallpaper({
+        publishedFileId: wallpaperId
+      });
+
+      if (result.success) {
+        setSteamWallpapers(prev => prev.filter(item => getWallpaperId(item) !== wallpaperId));
+        setDetailWallpaper(current => (
+          current && getWallpaperId(current) === wallpaperId ? null : current
+        ));
+        loadSteamWallpapers();
+      } else {
+        setWorkshopError(result.error || 'No se pudo eliminar el wallpaper');
+      }
+    } catch (err) {
+      setWorkshopError('Error al eliminar: ' + err.message);
+      console.error('Error deleting Workshop wallpaper:', err);
+    } finally {
+      setDeletingId('');
+    }
+  };
+
   const handleSetAsWallpaper = useCallback(async (wallpaper) => {
     try {
       if (!window.electronAPI) {
         alert('Esta función solo está disponible en la versión de escritorio');
+        return;
+      }
+
+      if (isSceneWallpaper(wallpaper)) {
+        alert([
+          'Este wallpaper es una escena de Wallpaper Engine.',
+          'Las escenas no se pueden establecer como fondo desde Windows ni desde esta app.',
+          'Si Wallpaper Engine dice que requiere una version mas nueva, actualiza Wallpaper Engine desde Steam.'
+        ].join('\n'));
         return;
       }
 
@@ -721,6 +892,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     }
   };
 
+  const downloadConfirmationDialog = (
+    <DownloadConfirmation
+      wallpaper={downloadConfirmation}
+      onClose={() => setDownloadConfirmation(null)}
+      onOpenLocation={openDownloadLocation}
+    />
+  );
+
   if (!window.electronAPI) {
     return (
       <div className="steam-integration-message">
@@ -731,6 +910,8 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   }
 
   if (detailWallpaper) {
+    const downloadedDetailWallpaper = getDownloadedWallpaper(detailWallpaper);
+    const activeDetailWallpaper = mergeDownloadedWallpaper(detailWallpaper, downloadedDetailWallpaper);
     const relatedWallpapers = visibleWorkshopWallpapers.filter(
       wallpaper => wallpaper.publishedFileId !== detailWallpaper.publishedFileId
     );
@@ -738,16 +919,20 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     return (
       <div className="steam-integration">
         <WorkshopDetailScreen
-          wallpaper={detailWallpaper}
+          wallpaper={activeDetailWallpaper}
           relatedWallpapers={relatedWallpapers}
-          isFavorite={favoriteIds.has(detailWallpaper.publishedFileId)}
+          isFavorite={favoriteIds.has(getWallpaperId(detailWallpaper))}
+          isDownloaded={Boolean(downloadedDetailWallpaper)}
           downloadingId={downloadingId}
+          deletingId={deletingId}
           downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
           onBack={() => setDetailWallpaper(null)}
           onOpen={setDetailWallpaper}
           onDownload={downloadWorkshopWallpaper}
+          onDelete={deleteWorkshopWallpaper}
           onToggleFavorite={toggleFavorite}
         />
+        {downloadConfirmationDialog}
       </div>
     );
   }
@@ -878,11 +1063,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
               <WorkshopCard
                 key={wallpaper.publishedFileId}
                 wallpaper={wallpaper}
-                isFavorite={favoriteIds.has(wallpaper.publishedFileId)}
-                isDownloading={downloadingId === wallpaper.publishedFileId}
+                downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
+                isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
+                isDownloading={downloadingId === getWallpaperId(wallpaper)}
+                isDeleting={deletingId === getWallpaperId(wallpaper)}
                 downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
                 onOpen={setDetailWallpaper}
                 onDownload={downloadWorkshopWallpaper}
+                onDelete={deleteWorkshopWallpaper}
                 onToggleFavorite={toggleFavorite}
               />
             ))}
@@ -921,11 +1109,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
                   <WorkshopCard
                     key={wallpaper.publishedFileId}
                     wallpaper={wallpaper}
-                    isFavorite={favoriteIds.has(wallpaper.publishedFileId)}
-                    isDownloading={downloadingId === wallpaper.publishedFileId}
+                    downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
+                    isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
+                    isDownloading={downloadingId === getWallpaperId(wallpaper)}
+                    isDeleting={deletingId === getWallpaperId(wallpaper)}
                     downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
                     onOpen={setDetailWallpaper}
                     onDownload={downloadWorkshopWallpaper}
+                    onDelete={deleteWorkshopWallpaper}
                     onToggleFavorite={toggleFavorite}
                   />
                 ))}
@@ -960,9 +1151,19 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
                 className={`steam-card ${selectedWallpaper?.mediaUrl === wallpaper.mediaUrl ? 'active' : ''}`}
               >
                 <div className="steam-card-image">
-                  {wallpaper.previewUrl && (
+                  {isVideoWallpaper(wallpaper) && (wallpaper.playbackUrl || wallpaper.mediaUrl) ? (
+                    <video
+                      src={toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl)}
+                      poster={toPlayableUrl(wallpaper.previewUrl)}
+                      controls
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                    />
+                  ) : (wallpaper.previewUrl || wallpaper.playbackUrl || wallpaper.mediaUrl) && (
                     <img 
-                      src={wallpaper.previewUrl} 
+                      src={toPlayableUrl(wallpaper.previewUrl || wallpaper.playbackUrl || wallpaper.mediaUrl)}
                       alt={wallpaper.title}
                       onError={(e) => {
                         e.target.style.display = 'none';
@@ -994,11 +1195,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
           </div>
         </>
       )}
-      <DownloadConfirmation
-        wallpaper={downloadConfirmation}
-        onClose={() => setDownloadConfirmation(null)}
-        onOpenLocation={openDownloadLocation}
-      />
+      {downloadConfirmationDialog}
     </div>
   );
 };

@@ -565,14 +565,16 @@
   overflow: hidden;
 }
 
-.steam-card-image img {
+.steam-card-image img,
+.steam-card-image video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: transform var(--transition-normal);
 }
 
-.steam-card:hover .steam-card-image img {
+.steam-card:hover .steam-card-image img,
+.steam-card:hover .steam-card-image video {
   transform: scale(1.05);
 }
 
@@ -1383,6 +1385,159 @@
   }
 }
 
+.workshop-grid.steam-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.gallery-workshop-card {
+  position: relative;
+  min-height: 0;
+  aspect-ratio: 3 / 4;
+  border-radius: 12px;
+}
+
+.gallery-workshop-card.downloaded {
+  border-color: rgba(80, 180, 80, 0.42);
+}
+
+.gallery-workshop-card .steam-card-click {
+  min-height: 0;
+  height: 100%;
+}
+
+.gallery-workshop-card .steam-card-image {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.gallery-workshop-card .steam-card-overlay {
+  z-index: 3;
+}
+
+.gallery-workshop-card .steam-card-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 62px;
+  z-index: 2;
+  padding: 56px 14px 14px;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.82) 48%, rgba(0, 0, 0, 0.94) 100%);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.gallery-workshop-card:hover .steam-card-info,
+.gallery-workshop-card:focus-within .steam-card-info,
+.gallery-workshop-card:hover .workshop-actions,
+.gallery-workshop-card:focus-within .workshop-actions {
+  opacity: 1;
+}
+
+.gallery-workshop-card .workshop-actions {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  grid-template-columns: minmax(72px, 0.82fr) minmax(90px, 1fr);
+  gap: 7px;
+  padding: 0;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.gallery-workshop-card.downloaded .workshop-actions {
+  grid-template-columns: minmax(60px, 0.8fr) minmax(68px, 1fr) minmax(68px, 1fr);
+}
+
+.gallery-workshop-card .icon-action,
+.gallery-workshop-card .set-wallpaper-btn,
+.repair-wallpaper-btn,
+.delete-wallpaper-btn {
+  min-width: 0;
+  height: 36px;
+  margin: 0;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.repair-wallpaper-btn,
+.delete-wallpaper-btn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.repair-wallpaper-btn {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.delete-wallpaper-btn {
+  border-color: rgba(255, 73, 85, 0.5);
+  background: rgba(229, 9, 20, 0.22);
+}
+
+.repair-wallpaper-btn:hover:not(:disabled) {
+  border-color: rgba(229, 9, 20, 0.55);
+  background: rgba(229, 9, 20, 0.14);
+}
+
+.delete-wallpaper-btn:hover:not(:disabled) {
+  background: rgba(229, 9, 20, 0.36);
+}
+
+.repair-wallpaper-btn:disabled,
+.delete-wallpaper-btn:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.detail-primary-actions.downloaded {
+  grid-template-columns: 1fr 108px 54px 64px;
+}
+
+.detail-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border: 1px solid rgba(255, 73, 85, 0.5);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(229, 9, 20, 0.2);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.detail-delete:hover:not(:disabled) {
+  background: rgba(229, 9, 20, 0.34);
+}
+
+.detail-delete:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .gallery-workshop-card .steam-card-info,
+  .gallery-workshop-card .workshop-actions {
+    opacity: 1;
+  }
+
+  .gallery-workshop-card.downloaded .workshop-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-workshop-card.downloaded .steam-card-info {
+    bottom: 126px;
+  }
+}
+
 .download-confirmation-backdrop {
   position: fixed;
   inset: 0;
@@ -1391,11 +1546,13 @@
   place-items: center;
   padding: 24px;
   background: rgba(0, 0, 0, 0.72);
+  overscroll-behavior: contain;
 }
 
 .download-confirmation {
   width: min(1180px, 100%);
-  overflow: hidden;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
   border: 1px solid rgba(229, 9, 20, 0.35);
   border-radius: 14px;
   background:
@@ -1462,6 +1619,7 @@
 }
 
 .download-confirmation-preview img,
+.download-confirmation-preview video,
 .download-confirmation-preview div {
   width: 100%;
   height: 100%;
