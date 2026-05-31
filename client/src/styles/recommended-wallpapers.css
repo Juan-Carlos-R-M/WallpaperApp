@@ -1,8 +1,8 @@
 /* Recommended Wallpapers */
 .recommended-wallpapers {
   padding: 40px;
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgb(var(--color-white-rgb) / 0.02);
+  border-top: 1px solid rgb(var(--color-white-rgb) / 0.1);
 }
 
 .recommended-wallpapers h3 {

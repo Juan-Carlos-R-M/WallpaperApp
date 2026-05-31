@@ -2,3 +2,27 @@
 /* No build artifacts, dependencies, or temp files detected in changes */
 /* Only CSS source file was modified */
 ```
+node_modules
+# Dependencias principales y de subcarpetas
+node_modules/
+**/node_modules/
+
+# Carpetas de compilación de frontend (Vite)
+dist/
+**/dist/
+
+# Todas las variantes de compilación de Electron de tu raíz
+dist-bootstrap/
+dist-debug/
+dist-final/
+dist-fixed/
+dist-fixed2/
+dist-fixed3/
+dist-stable/
+dist-visible/
+dist-working/
+
+# Archivos del sistema y logs
+*.log
+.DS_Store
+Thumbs.db

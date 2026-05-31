@@ -28,7 +28,7 @@
 .steam-user-actions button {
   height: 38px;
   padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
   border-radius: 6px;
   color: var(--text-light);
   background: rgba(0, 123, 255, 0.18);
@@ -44,9 +44,9 @@
 
 .steam-user-list,
 .steam-user-form {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.08);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgb(var(--color-white-rgb) / 0.025);
 }
 
 .steam-user-list {
@@ -60,7 +60,7 @@
   gap: 4px;
   padding: 12px;
   border: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.06);
   color: var(--text-light);
   text-align: left;
   background: transparent;
@@ -95,10 +95,10 @@
 .steam-user-form input {
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
   border-radius: 6px;
   color: var(--text-light);
-  background: rgba(0, 0, 0, 0.28);
+  background: rgb(var(--color-bg-rgb) / 0.28);
 }
 
 .steam-user-actions {

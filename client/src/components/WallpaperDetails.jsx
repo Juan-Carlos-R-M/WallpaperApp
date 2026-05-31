@@ -1,191 +1,444 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { toPlayableUrl } from '../utils/mediaUrl';
-import RecommendedWallpapers from './RecommendedWallpapers';
-import '../styles/wallpaper-details.css';
+import {
+  enrichWallpaperMetadata,
+  formatCompact,
+  formatDate,
+  formatFileSize,
+  formatPlaybackTime,
+  getAuthorInfo,
+  getPreviewUrl,
+  getVideoPlaybackUrl,
+  normalizeTags
+} from '../utils/wallpaperMeta';
+import '../styles/steam-integration.css';
+import 'bootstrap-icons/font/bootstrap-icons.css';
 
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i;
-
-export default function WallpaperDetails({ 
-  wallpaper, 
-  onClose, 
-  onRepair, 
-  onDelete, 
+export default function WallpaperDetails({
+  wallpaper,
+  onClose,
+  onBack,
+  onDownload,
+  onDelete,
+  onToggleFavorite,
+  onOpenAuthor,
   onSubscribe,
+  isDownloaded = false,
+  isFavorite = false,
+  isSubscribed = false,
   repairing = false,
   deleting = false,
-  isDownloaded = false 
+  downloaderReady = true,
+  relatedWallpapers = [],
+  authorWallpapers = [],
+  onOpenRelated,
+  sourceName = 'Local',
+  sourceIcon = 'hdd-stack',
+  showComments = false
 }) {
-  const [isSubscribed, setIsSubscribed] = useState(wallpaper?.isSubscribed || false);
-  const videoUrl = String(wallpaper?.mediaType || '').toLowerCase() === 'video'
-    ? toPlayableUrl(wallpaper?.playbackUrl || wallpaper?.mediaUrl)
-    : '';
-  const mediaUrl = toPlayableUrl(wallpaper?.playbackUrl || wallpaper?.mediaUrl || wallpaper?.previewUrl || wallpaper?.image?.url || wallpaper?.preview?.url);
-  const previewUrl = toPlayableUrl(wallpaper?.previewUrl || wallpaper?.preview?.url || wallpaper?.image?.url || mediaUrl);
-  
-  const isVideo = wallpaper?.mediaType === 'video'
-    || VIDEO_EXTENSIONS.test([wallpaper?.playbackUrl, wallpaper?.mediaUrl, mediaUrl].filter(Boolean).join(' '));
+  const overlayRef = useRef(null);
+  const videoRef = useRef(null);
+  const relatedRowRef = useRef(null);
+  const sideAuthorRowRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [favorite, setFavorite] = useState(isFavorite);
+  const [subscribed, setSubscribed] = useState(isSubscribed);
+
+  const displayWallpaper = enrichWallpaperMetadata(wallpaper || {});
+  const authorInfo = getAuthorInfo(displayWallpaper) || displayWallpaper.authorInfo;
+
+  useEffect(() => {
+    setFavorite(isFavorite);
+  }, [isFavorite]);
+
+  useEffect(() => {
+    setSubscribed(isSubscribed);
+  }, [isSubscribed]);
+
+  useEffect(() => {
+    if (!wallpaper) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    overlayRef.current?.scrollTo({ top: 0 });
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [wallpaper]);
 
   if (!wallpaper) return null;
 
-  const handleSubscribe = () => {
-    setIsSubscribed(!isSubscribed);
-    onSubscribe?.(wallpaper, !isSubscribed);
-  };
+  const videoUrl = getVideoPlaybackUrl(displayWallpaper);
+  const previewUrl = getPreviewUrl(displayWallpaper);
+  const isVideo = Boolean(videoUrl);
+  const tags = normalizeTags(displayWallpaper);
+  const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const authorName = displayWallpaper.author || authorInfo?.name || 'Autor';
+  const authorId = displayWallpaper.authorId || authorInfo?.id || authorName;
 
-  const handleRepair = () => {
-    onRepair?.(wallpaper);
-  };
+  const details = [
+    ['Tipo', displayWallpaper.mediaType || tags[0] || 'Imagen'],
+    displayWallpaper.publishedFileId ? ['ID Workshop', displayWallpaper.publishedFileId] : null,
+    displayWallpaper.localPath ? ['Ubicacion', displayWallpaper.localPath] : null,
+    displayWallpaper.resolution ? ['Resolucion', displayWallpaper.resolution] : null,
+    ['Tamano', formatFileSize(displayWallpaper.fileSize)],
+    displayWallpaper.timeCreated ? ['Fecha', formatDate(displayWallpaper.timeCreated)] : null,
+    displayWallpaper.timeUpdated ? ['Actualizado', formatDate(displayWallpaper.timeUpdated)] : null,
+    ['Etiquetas', tags.join(', ')]
+  ].filter(Boolean);
 
-  const handleDelete = () => {
-    if (confirm('¿Estás seguro de que deseas eliminar este wallpaper?')) {
-      onDelete?.(wallpaper);
+  const togglePlayback = async () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      await videoRef.current.play().catch(() => {});
+    } else {
+      videoRef.current.pause();
     }
   };
 
-  const handleViewAuthor = () => {
-    // This will trigger viewing the author's profile
-    console.log('Ver perfil del autor:', wallpaper.authorId);
+  const seekVideo = (event) => {
+    const video = videoRef.current;
+    if (!video || !duration) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    video.currentTime = ratio * duration;
   };
 
+  const handleToggleFavorite = () => {
+    setFavorite(prev => !prev);
+    onToggleFavorite?.(displayWallpaper);
+  };
+
+  const handleSubscribe = () => {
+    const nextSubscribed = !subscribed;
+    setSubscribed(nextSubscribed);
+    onSubscribe?.(authorId, nextSubscribed);
+  };
+
+  const handleDownload = () => {
+    onDownload?.(displayWallpaper);
+    if (!isDownloaded && authorId) {
+      setSubscribed(true);
+      onSubscribe?.(authorId, true);
+    }
+  };
+
+  const handleDelete = () => {
+    if (onDelete && confirm('Eliminar este wallpaper?')) {
+      onDelete(displayWallpaper);
+    }
+  };
+
+  const handleOpenAuthor = () => {
+    onOpenAuthor?.(authorId);
+  };
+
+  const handleOpenRelated = (item) => {
+    if (!item || !onOpenRelated) return;
+    overlayRef.current?.scrollTo({ top: 0 });
+    onOpenRelated(item);
+  };
+
+  const scrollWallpaperRow = (rowRef, direction) => {
+    const row = rowRef.current;
+    if (!row) return;
+    row.scrollBy({
+      left: direction * Math.max(260, Math.floor(row.clientWidth * 0.82)),
+      behavior: 'smooth'
+    });
+  };
+
+  const renderHorizontalWallpapers = (items, rowRef, className = '') => (
+    <div className="detail-carousel-shell">
+      <button
+        type="button"
+        className="detail-carousel-arrow previous"
+        aria-label="Wallpapers anteriores"
+        onClick={() => scrollWallpaperRow(rowRef, -1)}
+      >
+        <i className="bi bi-chevron-left"></i>
+      </button>
+      <div className={`detail-horizontal-row ${className}`} ref={rowRef}>
+        {items.map((item, index) => {
+          const related = enrichWallpaperMetadata(item);
+          const downloaded = Boolean(related.localPath || related.installed || related.downloaded || related.fromSteam);
+          const statValue = related.views || related.downloads || related.subscriptions || related.likes || 0;
+          return (
+            <button
+              key={related._id || related.publishedFileId || related.id || index}
+              type="button"
+              onClick={() => handleOpenRelated(related)}
+              className={index === 0 ? 'active' : ''}
+              title={related.title}
+            >
+              <img src={getPreviewUrl(related)} alt={related.title} />
+              <small>{downloaded ? 'Instalado' : 'Workshop'}</small>
+              <span>{related.title}</span>
+              <em><i className="bi bi-eye"></i> {formatCompact(statValue)}</em>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="detail-carousel-arrow next"
+        aria-label="Wallpapers siguientes"
+        onClick={() => scrollWallpaperRow(rowRef, 1)}
+      >
+        <i className="bi bi-chevron-right"></i>
+      </button>
+    </div>
+  );
+
+  const renderRecommendationStrip = (items) => {
+    const visibleItems = items.slice(0, 5);
+    const hiddenCount = Math.max(0, items.length - visibleItems.length);
+
+    return (
+      <div className="detail-thumbnail-strip">
+        <button
+          type="button"
+          className="detail-strip-arrow previous"
+          aria-label="Recomendaciones anteriores"
+          onClick={() => scrollWallpaperRow(relatedRowRef, -1)}
+        >
+          <i className="bi bi-chevron-left"></i>
+        </button>
+
+        <div className="detail-strip-row" ref={relatedRowRef}>
+          {visibleItems.map((item, index) => {
+            const related = enrichWallpaperMetadata(item);
+            return (
+              <button
+                key={related._id || related.publishedFileId || related.id || index}
+                type="button"
+                className={index === 0 ? 'active' : ''}
+                title={related.title}
+                onClick={() => handleOpenRelated(related)}
+              >
+                <img src={getPreviewUrl(related)} alt={related.title} />
+              </button>
+            );
+          })}
+
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="detail-strip-more"
+              aria-label={`${hiddenCount} recomendaciones mas`}
+              onClick={() => scrollWallpaperRow(relatedRowRef, 1)}
+            >
+              <span>+{hiddenCount}</span>
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="detail-strip-arrow next"
+          aria-label="Mas recomendaciones"
+          onClick={() => scrollWallpaperRow(relatedRowRef, 1)}
+        >
+          <i className="bi bi-chevron-right"></i>
+        </button>
+      </div>
+    );
+  };
+
+  const primaryActionLabel = isDownloaded ? 'Reparar' : 'Descargar';
+  const primaryActionIcon = isDownloaded ? 'arrow-repeat' : 'download';
+  const primaryActionDisabled = repairing || !downloaderReady || !onDownload;
+
   return createPortal(
-    <div className="wallpaper-details-overlay" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="wallpaper-details-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose} aria-label="Cerrar">✕</button>
-        
-        <div className="details-container">
-          {/* Media Section */}
-          <div className="details-media-section">
-            {isVideo ? (
-              <video 
-                src={videoUrl} 
-                poster={previewUrl}
-                controls 
-                autoPlay
-                muted 
-                loop 
-                playsInline 
-                preload="metadata"
-              />
-            ) : (
-              <img src={previewUrl} alt={wallpaper.title} />
-            )}
-          </div>
+    <div className="wallpaper-details-overlay" ref={overlayRef} onClick={onClose}>
+      <section className="wallpaper-detail-screen" onClick={(event) => event.stopPropagation()}>
+        <nav className="detail-breadcrumb">
+          <button type="button" onClick={onBack || onClose}>
+            <i className="bi bi-house-door"></i> Inicio
+          </button>
+          <i className="bi bi-chevron-right"></i>
+          <button type="button" onClick={onBack || onClose}>
+            <i className={`bi bi-${sourceIcon}`}></i> {sourceName}
+          </button>
+          <i className="bi bi-chevron-right"></i>
+          <strong><i className="bi bi-image"></i> {displayWallpaper.title}</strong>
+        </nav>
 
-          {/* Info Section */}
-          <div className="details-info-section">
-            <div className="details-header">
-              <h1>{wallpaper.title}</h1>
-              <p className="details-category">{wallpaper.category}</p>
-            </div>
-
-            {wallpaper.description && (
-              <div className="details-description">
-                <h3>Descripción</h3>
-                <p>{wallpaper.description}</p>
-              </div>
-            )}
-
-            {/* Author Section */}
-            {wallpaper.authorInfo && (
-              <div className="details-author-section">
-                <div className="author-header">
-                  <div className="author-info">
-                    <h3>{wallpaper.authorInfo.name}</h3>
-                    <p className="author-desc">{wallpaper.authorInfo.description}</p>
-                    <div className="author-stats">
-                      <span>{wallpaper.authorInfo.followers} seguidores</span>
-                      <span>•</span>
-                      <span>{wallpaper.authorInfo.wallpapers} wallpapers</span>
-                    </div>
-                  </div>
-                  <div className="author-actions">
-                    <button 
-                      onClick={handleViewAuthor}
-                      className="view-author-btn"
-                    >
-                      Ver Autor
-                    </button>
-                    <button 
-                      onClick={handleSubscribe}
-                      className={`subscribe-btn ${isSubscribed ? 'subscribed' : ''}`}
-                    >
-                      {isSubscribed ? 'Suscrito' : 'Suscribirse'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Stats Section */}
-            <div className="details-stats">
-              <div className="stat-item">
-                <span className="stat-label">Descargas</span>
-                <span className="stat-value">⬇️ {wallpaper.downloads}</span>
-              </div>
-              {wallpaper.likes && (
-                <div className="stat-item">
-                  <span className="stat-label">Me gusta</span>
-                  <span className="stat-value">❤️ {wallpaper.likes}</span>
-                </div>
-              )}
-              {wallpaper.rating && (
-                <div className="stat-item">
-                  <span className="stat-label">Calificación</span>
-                  <span className="stat-value">⭐ {wallpaper.rating.average?.toFixed(1)} ({wallpaper.rating.count})</span>
-                </div>
-              )}
-              {wallpaper.resolution && (
-                <div className="stat-item">
-                  <span className="stat-label">Resolución</span>
-                  <span className="stat-value">{wallpaper.resolution}</span>
-                </div>
-              )}
-              {wallpaper.uploadDate && (
-                <div className="stat-item">
-                  <span className="stat-label">Subido</span>
-                  <span className="stat-value">{new Date(wallpaper.uploadDate).toLocaleDateString()}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Actions Section */}
-            <div className="details-actions">
-              {isDownloaded ? (
-                <>
-                  <button 
-                    onClick={handleRepair} 
-                    className="repair-btn"
-                    disabled={repairing}
-                  >
-                    {repairing ? 'Reparando...' : 'Reparar'}
-                  </button>
-                  <button 
-                    onClick={handleDelete} 
-                    className="delete-btn"
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Eliminando...' : 'Eliminar'}
-                  </button>
-                </>
+        <div className="detail-page-grid">
+          <main className="detail-preview-column">
+            <div className="detail-preview-frame">
+              {isVideo ? (
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  poster={previewUrl}
+                  preload="metadata"
+                  playsInline
+                  onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+                  onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                />
+              ) : previewUrl ? (
+                <img src={previewUrl} alt={displayWallpaper.title} />
               ) : (
-                <button 
-                  onClick={() => window.open(`/download/${wallpaper._id}`)}
-                  className="download-btn"
-                >
-                  Descargar
+                <div className="detail-preview-empty">Sin preview</div>
+              )}
+
+              {isVideo && (
+                <>
+                  <div className="detail-player-bar" onClick={seekVideo}>
+                    <span style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="detail-player-controls">
+                    <button type="button" onClick={togglePlayback}>
+                      <i className={`bi bi-${isPlaying ? 'pause-fill' : 'play-fill'}`}></i>
+                    </button>
+                    <span>{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {relatedWallpapers.length > 0 && (
+              <section className="detail-preview-section detail-recommendations">
+                {renderRecommendationStrip(relatedWallpapers.slice(0, 12))}
+              </section>
+            )}
+
+            {showComments && (
+              <section className="detail-comments">
+                <h3><i className="bi bi-chat-dots"></i> Comentarios <span>(128)</span></h3>
+                <div className="detail-comment-box">
+                  <i className="bi bi-pencil"></i> Escribe un comentario...
+                </div>
+                <article>
+                  <div className="comment-header">
+                    <i className="bi bi-person-circle"></i>
+                    <strong>KuroNeko</strong>
+                    <small><i className="bi bi-clock"></i> hace 2 dias</small>
+                  </div>
+                  <p>Increible ambiente, me encanta para estudiar. Gracias por compartirlo.</p>
+                </article>
+              </section>
+            )}
+          </main>
+
+          <aside className="detail-side-panel">
+            <div className="detail-title-row">
+              <h2>{displayWallpaper.title}</h2>
+              <span><i className={`bi bi-${sourceIcon}`}></i> {sourceName}</span>
+            </div>
+
+            <div className="detail-author">
+              <div>{String(authorName || '?').slice(0, 2).toUpperCase()}</div>
+              <p>
+                <strong><i className="bi bi-person-badge"></i> {authorName}</strong>
+                {authorInfo?.handle && <small>{authorInfo.handle}</small>}
+              </p>
+              {onOpenAuthor && (
+                <button type="button" className="detail-author-link" onClick={handleOpenAuthor}>
+                  Perfil
                 </button>
               )}
             </div>
-          </div>
-        </div>
 
-        {/* Recommended Wallpapers Section */}
-        <RecommendedWallpapers 
-          currentWallpaper={wallpaper}
-          category={wallpaper.category}
-        />
-      </div>
+            {displayWallpaper.description && (
+              <p className="detail-description">{displayWallpaper.description}</p>
+            )}
+
+            <div className="detail-metrics">
+              <div><i className="bi bi-download"></i><strong>{formatCompact(displayWallpaper.downloads || displayWallpaper.subscriptions)}</strong><span>Descargas</span></div>
+              <div><i className="bi bi-heart"></i><strong>{formatCompact(displayWallpaper.likes || displayWallpaper.favorited)}</strong><span>Me gusta</span></div>
+              <div><i className="bi bi-eye"></i><strong>{formatCompact(displayWallpaper.views)}</strong><span>Vistas</span></div>
+              <div><i className="bi bi-star-fill"></i><strong>{Number(displayWallpaper.score || displayWallpaper.rating?.average || 0).toFixed(1)}</strong><span>Valoracion</span></div>
+            </div>
+
+            <div className={`detail-primary-actions ${isDownloaded ? 'downloaded' : ''}`}>
+              {onDownload && (
+                <button
+                  type="button"
+                  className="detail-download"
+                  disabled={primaryActionDisabled}
+                  onClick={handleDownload}
+                >
+                  <i className={`bi bi-${primaryActionIcon} ${repairing ? 'spin-icon' : ''}`}></i>
+                  {repairing ? 'Procesando...' : primaryActionLabel}
+                </button>
+              )}
+              {isDownloaded && onDelete && (
+                <button
+                  type="button"
+                  className="detail-delete"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  <i className={`bi bi-trash${deleting ? '-fill spin-icon' : ''}`}></i>
+                  {deleting ? 'Eliminando...' : 'Eliminar'}
+                </button>
+              )}
+              {onToggleFavorite && (
+                <button
+                  type="button"
+                  className={`detail-like ${favorite ? 'liked' : ''}`}
+                  onClick={handleToggleFavorite}
+                >
+                  <i className={`bi bi-heart${favorite ? '-fill' : ''}`}></i>
+                  Favorito
+                </button>
+              )}
+              {onSubscribe && (
+                <button
+                  type="button"
+                  className={`detail-share ${subscribed ? 'subscribed' : ''}`}
+                  onClick={handleSubscribe}
+                >
+                  <i className={`bi bi-bell${subscribed ? '-fill' : ''}`}></i>
+                  {subscribed ? 'Suscrito' : 'Seguir'}
+                </button>
+              )}
+            </div>
+
+            <div className="detail-tags">
+              {tags.map(tag => <span key={tag}><i className="bi bi-tag"></i> {tag}</span>)}
+            </div>
+
+            <dl className="detail-specs">
+              {details.map(([label, value]) => (
+                <div key={label}>
+                  <dt><i className="bi bi-info-circle"></i> {label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="detail-trust">
+              <i className="bi bi-shield-check"></i>
+              <strong>{sourceName === 'Workshop' ? 'Verificado por Wallpaper Engine' : 'Wallpaper local'}</strong>
+              <span>{sourceName === 'Workshop'
+                ? 'Este wallpaper conserva la informacion disponible del Workshop.'
+                : 'Este wallpaper esta almacenado en tu dispositivo o en el catalogo local.'
+              }</span>
+            </div>
+
+            {authorWallpapers.length > 0 && (
+              <section className="detail-author-wallpapers">
+                <div>
+                  <h3>Mas del autor</h3>
+                  {onOpenAuthor && (
+                    <button type="button" onClick={handleOpenAuthor}>Ver todo <i className="bi bi-chevron-right"></i></button>
+                  )}
+                </div>
+                {renderHorizontalWallpapers(authorWallpapers.slice(0, 12), sideAuthorRowRef, 'compact side')}
+              </section>
+            )}
+
+          </aside>
+        </div>
+      </section>
     </div>,
     document.body
   );

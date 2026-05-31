@@ -3,7 +3,7 @@
   height: 100%;
   position: relative;
   overflow: hidden;
-  background: #000;
+  background: rgb(var(--color-bg-rgb));
 }
 
 .media-image,
@@ -26,7 +26,7 @@
 /* Lazy loading placeholder */
 .media-image[loading="lazy"],
 .media-gif[loading="lazy"] {
-  background: linear-gradient(45deg, #1a1a1a 25%, #252525 25%, #252525 50%, #1a1a1a 50%, #1a1a1a 75%, #252525 75%, #252525);
+  background: linear-gradient(45deg, var(--color-bg-muted) 25%, var(--color-bg-checker) 25%, var(--color-bg-checker) 50%, var(--color-bg-muted) 50%, var(--color-bg-muted) 75%, var(--color-bg-checker) 75%, var(--color-bg-checker));
   background-size: 20px 20px;
 }
 

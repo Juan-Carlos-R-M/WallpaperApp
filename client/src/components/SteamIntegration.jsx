@@ -1,12 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { toPlayableUrl } from '../utils/mediaUrl';
+import {
+  enrichWallpaperMetadata,
+  getAuthorWallpapers,
+  sortSimilarWallpapers
+} from '../utils/wallpaperMeta';
 import '../styles/steam-integration.css';
+// Importar Bootstrap Icons (asegúrate de tener instalado: npm install bootstrap-icons)
+import 'bootstrap-icons/font/bootstrap-icons.css';
+import WallpaperDetails from './WallpaperDetails';
+import AuthorProfile from './AuthorProfile';
+
 
 const FILTER_STORAGE_KEY = 'wallpaperApp.workshopFilters';
 export const FAVORITES_STORAGE_KEY = 'wallpaperApp.workshopFavorites';
 export const DOWNLOAD_CONFIRMATION_STORAGE_KEY = 'wallpaperApp.showDownloadConfirmation';
 const USERNAME_STORAGE_KEY = 'wallpaperApp.steamUsername';
 const ACCOUNTS_STORAGE_KEY = 'wallpaperApp.steamAccounts';
+const SUBSCRIPTIONS_STORAGE_KEY = 'wallpaperApp.subscriptions';
 const DEFAULT_STEAM_USERNAME = 'adgjl1182';
 const DEFAULT_FILTERS = {
   sort: 'trend',
@@ -25,11 +36,11 @@ const loadSavedFilters = () => {
 };
 
 const TYPE_TAGS = [
-  { value: '', label: 'Todos los tipos' },
-  { value: 'Scene', label: 'Escena' },
-  { value: 'Video', label: 'Video' },
-  { value: 'Web', label: 'Web' },
-  { value: 'Application', label: 'Aplicacion' }
+  { value: '', label: 'Todos los tipos', icon: 'bi-grid' },
+  { value: 'Scene', label: 'Escena', icon: 'bi-bezier2' },
+  { value: 'Video', label: 'Video', icon: 'bi-camera-reels' },
+  { value: 'Web', label: 'Web', icon: 'bi-browser-chrome' },
+  { value: 'Application', label: 'Aplicacion', icon: 'bi-window' }
 ];
 
 const loadFavorites = () => {
@@ -43,6 +54,14 @@ const loadFavorites = () => {
 
 const saveFavorites = (favorites) => {
   localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+};
+
+const loadSubscriptions = () => {
+  try {
+    return JSON.parse(localStorage.getItem(SUBSCRIPTIONS_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
 };
 
 const loadSteamAccounts = () => {
@@ -97,7 +116,9 @@ const mergeDownloadedWallpaper = (workshopWallpaper = {}, downloadedWallpaper = 
     ...downloadedWallpaper,
     publishedFileId: getWallpaperId(workshopWallpaper) || getWallpaperId(downloadedWallpaper),
     title: workshopWallpaper.title || downloadedWallpaper.title,
+    authorId: workshopWallpaper.authorId || workshopWallpaper.creator || downloadedWallpaper.authorId || downloadedWallpaper.creator,
     author: workshopWallpaper.author || downloadedWallpaper.author,
+    creator: workshopWallpaper.creator || workshopWallpaper.authorId || downloadedWallpaper.creator,
     description: workshopWallpaper.description || downloadedWallpaper.description,
     tags: workshopWallpaper.tags?.length ? workshopWallpaper.tags : downloadedWallpaper.tags,
     previewUrl: downloadedWallpaper.previewUrl || workshopWallpaper.previewUrl,
@@ -116,212 +137,6 @@ const formatPlaybackTime = (seconds = 0) => {
   return `${minutes}:${String(rest).padStart(2, '0')}`;
 };
 
-const WorkshopDetailScreen = ({
-  wallpaper,
-  relatedWallpapers,
-  isFavorite,
-  isDownloaded,
-  downloadingId,
-  deletingId,
-  downloaderReady,
-  onBack,
-  onOpen,
-  onDownload,
-  onDelete,
-  onToggleFavorite
-}) => {
-  const videoRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const tags = wallpaper.tags?.length ? wallpaper.tags.slice(0, 6) : ['Workshop', 'Wallpaper Engine'];
-  const wallpaperId = getWallpaperId(wallpaper);
-  const videoUrl = wallpaper.mediaType === 'video' && (wallpaper.playbackUrl || wallpaper.mediaUrl)
-    ? toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl)
-    : '';
-  const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
-  const details = [
-    ['Tipo', tags[0] || 'Workshop'],
-    ['Workshop ID', wallpaper.publishedFileId],
-    ['Tamano', wallpaper.fileSize ? `${(Number(wallpaper.fileSize) / 1024 / 1024).toFixed(1)} MB` : 'Sin dato'],
-    ['Publicado', formatDate(wallpaper.timeCreated)],
-    ['Actualizado', formatDate(wallpaper.timeUpdated)],
-    ['Etiquetas', tags.join(', ')]
-  ];
-
-  const togglePlayback = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (video.paused) {
-      await video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
-  };
-
-  const seekVideo = (event) => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    video.currentTime = ratio * duration;
-  };
-
-  return (
-    <section className="wallpaper-detail-screen">
-      <nav className="detail-breadcrumb">
-        <button type="button" onClick={onBack}>Inicio</button>
-        <span>/</span>
-        <button type="button" onClick={onBack}>Steam Wallpaper Engine</button>
-        <span>/</span>
-        <strong>{wallpaper.title}</strong>
-      </nav>
-
-      <div className="detail-page-grid">
-        <main className="detail-preview-column">
-          <div className="detail-preview-frame">
-            {videoUrl ? (
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                poster={wallpaper.previewUrl}
-                preload="metadata"
-                playsInline
-                onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-                onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onEnded={() => setIsPlaying(false)}
-              />
-            ) : wallpaper.previewUrl ? (
-              <img src={wallpaper.previewUrl} alt={wallpaper.title} />
-            ) : (
-              <div className="detail-preview-empty">Sin preview</div>
-            )}
-            <div className="detail-player-bar">
-              <span />
-            </div>
-            <div className="detail-player-controls">
-              <span>||</span>
-              <span>&gt;</span>
-              <span>0:00 / 0:30</span>
-              <span>□</span>
-            </div>
-          </div>
-
-          <div className="detail-thumbnails">
-            {[wallpaper, ...relatedWallpapers.slice(0, 4)].map((item, index) => (
-              <button
-                key={`${item.publishedFileId}-${index}`}
-                type="button"
-                className={index === 0 ? 'active' : ''}
-                onClick={() => index > 0 && onOpen(item)}
-              >
-                {item.previewUrl && <img src={item.previewUrl} alt={item.title} />}
-              </button>
-            ))}
-          </div>
-
-          <section className="detail-comments">
-            <h3>Comentarios <span>(128)</span></h3>
-            <div className="detail-comment-box">Escribe un comentario...</div>
-            <article>
-              <strong>KuroNeko</strong>
-              <small>hace 2 dias</small>
-              <p>Increible ambiente, me encanta para estudiar, gracias por compartirlo.</p>
-            </article>
-          </section>
-        </main>
-
-        <aside className="detail-side-panel">
-          <div className="detail-title-row">
-            <h2>{wallpaper.title}</h2>
-            <span>Workshop</span>
-          </div>
-          <div className="detail-author">
-            <div>{String(wallpaper.author || wallpaper.publishedFileId || 'WE').slice(0, 2).toUpperCase()}</div>
-            <p>
-              <strong>{wallpaper.author || 'Autor de Workshop'}</strong>
-              <small>Ver todos los wallpapers</small>
-            </p>
-          </div>
-
-          <div className="detail-metrics">
-            <div><strong>{formatCompact(wallpaper.subscriptions)}</strong><span>Descargas</span></div>
-            <div><strong>{formatCompact(wallpaper.favorited)}</strong><span>Me gusta</span></div>
-            <div><strong>{formatCompact(Math.max(Number(wallpaper.subscriptions || 0) * 3, 0))}</strong><span>Vistas</span></div>
-            <div><strong>{Number(wallpaper.score || 0).toFixed(1)}</strong><span>Valoracion</span></div>
-          </div>
-
-          <div className={`detail-primary-actions ${isDownloaded ? 'downloaded' : ''}`}>
-            <button
-              type="button"
-              className="detail-download"
-              disabled={Boolean(downloadingId) || !downloaderReady}
-              onClick={() => onDownload(wallpaper)}
-            >
-              {downloadingId === wallpaperId
-                ? (isDownloaded ? 'Reparando...' : 'Descargando...')
-                : (isDownloaded ? 'Reparar wallpaper' : 'Descargar Wallpaper')}
-            </button>
-            {isDownloaded && (
-              <button
-                type="button"
-                className="detail-delete"
-                disabled={deletingId === wallpaperId}
-                onClick={() => onDelete(wallpaper)}
-              >
-                {deletingId === wallpaperId ? 'Eliminando...' : 'Eliminar'}
-              </button>
-            )}
-            <button type="button" className={`detail-like ${isFavorite ? 'liked' : ''}`} onClick={() => onToggleFavorite(wallpaper)}>
-              {isFavorite ? 'Me gusta' : 'Me gusta'}
-            </button>
-            <a className="detail-share" href={wallpaper.url} target="_blank" rel="noreferrer">Abrir</a>
-          </div>
-
-          <div className="detail-tags">
-            {tags.map(tag => <span key={tag}>{tag}</span>)}
-          </div>
-
-          <dl className="detail-specs">
-            {details.map(([label, value]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <div className="detail-trust">
-            <strong>Verificado por Wallpaper Engine</strong>
-            <span>Este wallpaper fue revisado antes de mostrarse en la app.</span>
-          </div>
-
-          {relatedWallpapers.length > 0 && (
-            <section className="detail-related">
-              <div>
-                <h3>Mas del autor</h3>
-                <button type="button" onClick={onBack}>Ver todo</button>
-              </div>
-              <div>
-                {relatedWallpapers.slice(0, 4).map(item => (
-                  <button key={item.publishedFileId} type="button" onClick={() => onOpen(item)}>
-                    {item.previewUrl && <img src={item.previewUrl} alt={item.title} />}
-                    <span>{formatCompact(item.subscriptions)} vistas</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-        </aside>
-      </div>
-    </section>
-  );
-};
-
 const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
   if (!wallpaper) return null;
 
@@ -336,12 +151,16 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
     <div className="download-confirmation-backdrop">
       <section className="download-confirmation" role="dialog" aria-modal="true" aria-labelledby="download-confirmation-title">
         <header>
-          <div className="download-confirmation-icon">↓</div>
+          <div className="download-confirmation-icon">
+            <i className="bi bi-check-circle-fill"></i>
+          </div>
           <div>
             <h2 id="download-confirmation-title">Wallpaper descargado</h2>
             <p>El wallpaper se ha descargado correctamente.</p>
           </div>
-          <button type="button" className="download-confirmation-close" onClick={onClose}>x</button>
+          <button type="button" className="download-confirmation-close" onClick={onClose}>
+            <i className="bi bi-x-lg"></i>
+          </button>
         </header>
 
         <div className="download-confirmation-body">
@@ -351,35 +170,39 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
             ) : previewUrl ? (
               <img src={previewUrl} alt={wallpaper.title} />
             ) : (
-              <div>Sin preview</div>
+              <div><i className="bi bi-image-slash"></i> Sin preview</div>
             )}
           </div>
 
           <aside>
-            <span className="download-confirmation-badge">Workshop</span>
+            <span className="download-confirmation-badge">
+              <i className="bi bi-steam"></i> Workshop
+            </span>
             <h3>{wallpaper.title}</h3>
-            <p className="download-confirmation-author">by {wallpaper.author || 'Wallpaper Engine'}</p>
+            <p className="download-confirmation-author">
+              <i className="bi bi-person"></i> by {wallpaper.author || 'Wallpaper Engine'}
+            </p>
             {tags.length > 0 && (
               <div className="download-confirmation-tags">
-                {tags.map(tag => <span key={tag}>{tag}</span>)}
+                {tags.map(tag => <span key={tag}><i className="bi bi-tag"></i> {tag}</span>)}
               </div>
             )}
 
             <dl>
               <div>
-                <dt>Ubicacion</dt>
+                <dt><i className="bi bi-folder"></i> Ubicacion</dt>
                 <dd>{location || 'No disponible'}</dd>
               </div>
               <div>
-                <dt>Tipo</dt>
+                <dt><i className="bi bi-filetype-mp4"></i> Tipo</dt>
                 <dd>{wallpaper.mediaType || 'Wallpaper'}</dd>
               </div>
               <div>
-                <dt>Tamano</dt>
+                <dt><i className="bi bi-hdd-stack"></i> Tamano</dt>
                 <dd>{size}</dd>
               </div>
               <div>
-                <dt>Descargado el</dt>
+                <dt><i className="bi bi-calendar-check"></i> Descargado el</dt>
                 <dd>{downloadedAt}</dd>
               </div>
             </dl>
@@ -388,10 +211,10 @@ const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
 
         <footer>
           <button type="button" className="download-confirmation-secondary" onClick={() => onOpenLocation(location)} disabled={!location}>
-            Abrir ubicacion
+            <i className="bi bi-folder2-open"></i> Abrir ubicacion
           </button>
           <button type="button" className="download-confirmation-primary" onClick={onClose}>
-            Aceptar
+            <i className="bi bi-check-lg"></i> Aceptar
           </button>
         </footer>
       </section>
@@ -459,24 +282,28 @@ const WorkshopCard = ({
             />
           )}
           <div className="steam-card-overlay">
-            <span className="steam-badge">{isDownloaded ? 'Instalado' : typeLabel}</span>
+            <span className="steam-badge">
+              <i className={`bi bi-${isDownloaded ? 'check-circle' : (typeLabel === 'Video' ? 'camera-reels' : 'image')}`}></i>
+              {isDownloaded ? 'Instalado' : typeLabel}
+            </span>
           </div>
         </div>
         <div className="steam-card-info">
           <h4>{displayWallpaper.title}</h4>
-          <p className="author">ID: {displayWallpaper.publishedFileId}</p>
+          {/* <p className="author"><i className="bi bi-upc-scan"></i> ID: {displayWallpaper.publishedFileId}</p> */}
           {displayWallpaper.description && (
             <p className="description">{displayWallpaper.description}</p>
           )}
           <div className="workshop-meta">
-            <span>{Number(displayWallpaper.subscriptions || 0).toLocaleString()} subs</span>
-            <span>{Number(displayWallpaper.favorited || 0).toLocaleString()} favs</span>
+            <span><i className="bi bi-download"></i> {Number(displayWallpaper.subscriptions || 0).toLocaleString()}</span>
+            <span><i className="bi bi-heart"></i> {Number(displayWallpaper.favorited || 0).toLocaleString()}</span>
           </div>
         </div>
       </button>
       <div className="workshop-actions">
         <button type="button" className={`icon-action ${isFavorite ? 'liked' : ''}`} onClick={() => onToggleFavorite(wallpaper)}>
-          {isFavorite ? 'Me gusta' : 'Me gusta'}
+          {/* <i className={`bi bi-heart${isFavorite ? '-fill' : ''}`}></i> */}
+          <span>Favorito</span>
         </button>
         {isDownloaded ? (
           <>
@@ -486,6 +313,7 @@ const WorkshopCard = ({
               disabled={isDownloading || !downloaderReady}
               className="repair-wallpaper-btn"
             >
+              <i className={`bi bi-arrow-repeat ${isDownloading ? 'spin-icon' : ''}`}></i>
               {isDownloading ? 'Reparando...' : 'Reparar'}
             </button>
             <button
@@ -494,6 +322,7 @@ const WorkshopCard = ({
               disabled={isDeleting}
               className="delete-wallpaper-btn"
             >
+              <i className="bi bi-trash"></i>
               {isDeleting ? 'Eliminando...' : 'Eliminar'}
             </button>
           </>
@@ -503,6 +332,7 @@ const WorkshopCard = ({
             disabled={isDownloading || !downloaderReady}
             className="set-wallpaper-btn"
           >
+            <i className={`bi bi-download ${isDownloading ? 'spin-icon' : ''}`}></i>
             {isDownloading ? 'Descargando...' : 'Descargar'}
           </button>
         )}
@@ -526,6 +356,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(loadSavedFilters);
   const [favorites, setFavorites] = useState(loadFavorites);
+  const [subscriptions, setSubscriptions] = useState(loadSubscriptions);
   const [steamAccounts, setSteamAccounts] = useState(loadSteamAccounts);
   const [credentials, setCredentials] = useState({
     username: localStorage.getItem(USERNAME_STORAGE_KEY) || DEFAULT_STEAM_USERNAME,
@@ -537,8 +368,11 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const [downloadConfirmation, setDownloadConfirmation] = useState(null);
   const [showFilters, setShowFilters] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
+  const [selectedAuthorId, setSelectedAuthorId] = useState(null);
   const [isSettingWallpaper, setIsSettingWallpaper] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const loadMoreRef = useRef(null);
+  const loadingMoreWorkshopRef = useRef(false);
 
   // Cargar wallpapers de Steam al montar el componente
   useEffect(() => {
@@ -558,6 +392,10 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
+
+  useEffect(() => {
+    localStorage.setItem(SUBSCRIPTIONS_STORAGE_KEY, JSON.stringify(subscriptions));
+  }, [subscriptions]);
 
   useEffect(() => {
     localStorage.setItem(USERNAME_STORAGE_KEY, credentials.username);
@@ -585,7 +423,8 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     if (!node) return undefined;
 
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
+      if (entry.isIntersecting && !loadingMoreWorkshopRef.current) {
+        loadingMoreWorkshopRef.current = true;
         searchWorkshop(null, { page: workshopPage + 1, append: true });
       }
     }, { rootMargin: '1000px 0px' });
@@ -603,9 +442,9 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
 
       setLoading(true);
       setError(null);
-      
+
       const result = await window.electronAPI.getSteamWallpapers();
-      
+
       if (result.success) {
         setSteamWallpapers(result.data);
       } else {
@@ -622,7 +461,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const checkSteamPath = async () => {
     try {
       if (!window.electronAPI) return;
-      
+
       const result = await window.electronAPI.getSteamPath();
       if (result.success) {
         setSteamPath(result.path);
@@ -683,8 +522,8 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   );
 
   // Filtrar wallpapers ya descargados de la lista del workshop
-  const visibleWorkshopWallpapers = favoritesOnly 
-    ? favorites 
+  const visibleWorkshopWallpapers = favoritesOnly
+    ? favorites
     : workshopWallpapers.filter(wallpaper => !downloadedById.has(getWallpaperId(wallpaper)));
 
   const searchWorkshop = async (event, overrides = {}) => {
@@ -723,7 +562,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
       console.error('Error searching Workshop:', err);
     } finally {
       setWorkshopLoading(false);
+      loadingMoreWorkshopRef.current = false;
     }
+  };
+
+  const loadMoreWorkshopWallpapers = () => {
+    if (favoritesOnly || workshopLoading || !hasMoreWorkshop || loadingMoreWorkshopRef.current) return;
+    loadingMoreWorkshopRef.current = true;
+    searchWorkshop(null, { page: workshopPage + 1, append: true });
   };
 
   const updateFilter = (name, value) => {
@@ -747,6 +593,11 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
       return [wallpaper, ...current];
     });
   };
+
+  const handleSubscribe = useCallback((authorId, isSubscribed) => {
+    if (!authorId) return;
+    setSubscriptions(current => ({ ...current, [authorId]: isSubscribed }));
+  }, []);
 
   const selectedSteamAccount = steamAccounts.find(account => account.username === credentials.username);
 
@@ -797,6 +648,10 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
             path: result.data.path,
             localPath: result.data.wallpaper?.localPath || result.data.path
           });
+        }
+        const authorId = wallpaper.authorId || wallpaper.author;
+        if (authorId) {
+          handleSubscribe(authorId, true);
         }
         loadSteamWallpapers();
       } else {
@@ -863,7 +718,7 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
 
       setIsSettingWallpaper(true);
       const result = await window.electronAPI.setWallpaper(wallpaper.mediaUrl);
-      
+
       if (result.success) {
         setSelectedWallpaper(wallpaper);
         alert(`✓ Wallpaper "${wallpaper.title}" establecido correctamente`);
@@ -903,206 +758,372 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   if (!window.electronAPI) {
     return (
       <div className="steam-integration-message">
+        <i className="bi bi-pc-display"></i>
         <p>ℹ️ Esta sección requiere la versión de escritorio (.exe) de Wallpaper App</p>
         <p>Descarga la versión de escritorio para acceder a tus wallpapers de Steam</p>
       </div>
     );
   }
 
-  if (detailWallpaper) {
-    const downloadedDetailWallpaper = getDownloadedWallpaper(detailWallpaper);
-    const activeDetailWallpaper = mergeDownloadedWallpaper(detailWallpaper, downloadedDetailWallpaper);
-    const relatedWallpapers = visibleWorkshopWallpapers.filter(
-      wallpaper => wallpaper.publishedFileId !== detailWallpaper.publishedFileId
-    );
+if (detailWallpaper) {
+  const downloadedDetailWallpaper = getDownloadedWallpaper(detailWallpaper);
+  const activeDetailWallpaper = mergeDownloadedWallpaper(detailWallpaper, downloadedDetailWallpaper);
+  const detailPool = [
+    ...workshopWallpapers,
+    ...steamWallpapers,
+    ...favorites
+  ].map((wallpaper) => enrichWallpaperMetadata(
+    mergeDownloadedWallpaper(wallpaper, getDownloadedWallpaper(wallpaper)) || wallpaper
+  ));
+  const relatedWallpapers = sortSimilarWallpapers(activeDetailWallpaper, detailPool).slice(0, 12);
+  const directAuthorWallpapers = getAuthorWallpapers(activeDetailWallpaper, detailPool).slice(0, 12);
+  const authorWallpapers = directAuthorWallpapers.length > 0
+    ? directAuthorWallpapers
+    : relatedWallpapers.slice(0, 8);
 
-    return (
-      <div className="steam-integration">
-        <WorkshopDetailScreen
-          wallpaper={activeDetailWallpaper}
-          relatedWallpapers={relatedWallpapers}
-          isFavorite={favoriteIds.has(getWallpaperId(detailWallpaper))}
-          isDownloaded={Boolean(downloadedDetailWallpaper)}
-          downloadingId={downloadingId}
-          deletingId={deletingId}
-          downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
-          onBack={() => setDetailWallpaper(null)}
-          onOpen={setDetailWallpaper}
-          onDownload={downloadWorkshopWallpaper}
-          onDelete={deleteWorkshopWallpaper}
-          onToggleFavorite={toggleFavorite}
+  return (
+    <div className="steam-integration">
+      <WallpaperDetails
+        wallpaper={activeDetailWallpaper}
+        onClose={() => setDetailWallpaper(null)}
+        onDownload={downloadWorkshopWallpaper}
+        onDelete={deleteWorkshopWallpaper}
+        onToggleFavorite={toggleFavorite}
+        onOpenAuthor={setSelectedAuthorId}
+        onSubscribe={handleSubscribe}
+        isDownloaded={Boolean(downloadedDetailWallpaper)}
+        isFavorite={favoriteIds.has(getWallpaperId(detailWallpaper))}
+        isSubscribed={Boolean(subscriptions[activeDetailWallpaper.authorId || activeDetailWallpaper.author])}
+        repairing={downloadingId === getWallpaperId(detailWallpaper)}
+        deleting={deletingId === getWallpaperId(detailWallpaper)}
+        downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
+        relatedWallpapers={relatedWallpapers}
+        authorWallpapers={authorWallpapers}
+        onOpenRelated={setDetailWallpaper}
+        sourceName="Workshop"
+        sourceIcon="steam"
+        showComments={true}
+      />
+      {selectedAuthorId && (
+        <AuthorProfile
+          authorId={selectedAuthorId}
+          allWallpapers={[...steamWallpapers, ...workshopWallpapers, ...favorites]}
+          subscriptions={subscriptions}
+          onClose={() => setSelectedAuthorId(null)}
+          onSubscribe={handleSubscribe}
+          onOpenWallpaper={setDetailWallpaper}
         />
-        {downloadConfirmationDialog}
+      )}
+      {downloadConfirmationDialog}
+    </div>
+  );
+}
+  // Componentes de UI mejorados
+  const SearchBar = () => (
+    <div className={`workshop-search-container ${isSearchFocused ? 'focused' : ''}`}>
+      <div className="search-input-wrapper">
+        <i className="bi bi-search search-icon"></i>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => setIsSearchFocused(true)}
+          onBlur={() => setIsSearchFocused(false)}
+          placeholder="Buscar wallpapers por nombre, etiquetas o autor..."
+          className="workshop-search-input"
+          onKeyPress={(e) => e.key === 'Enter' && searchWorkshop(e)}
+        />
+        {query && (
+          <button
+            className="search-clear-btn"
+            onClick={() => setQuery('')}
+            title="Limpiar búsqueda"
+          >
+            <i className="bi bi-x-circle-fill"></i>
+          </button>
+        )}
+        <button
+          type="submit"
+          className="search-submit-btn"
+          onClick={(e) => searchWorkshop(e)}
+          disabled={workshopLoading}
+        >
+          {workshopLoading ? (
+            <i className="bi bi-arrow-repeat spin-icon"></i>
+          ) : (
+            <i className="bi bi-arrow-right"></i>
+          )}
+        </button>
       </div>
-    );
-  }
+
+      <button
+        type="button"
+        className={`filter-toggle-btn ${showFilters ? 'active' : ''}`}
+        onClick={() => setShowFilters(current => !current)}
+      >
+        <i className={`bi bi-funnel${showFilters ? '-fill' : ''}`}></i>
+        <span>Filtros</span>
+        <i className={`bi bi-chevron-${showFilters ? 'up' : 'down'}`}></i>
+      </button>
+    </div>
+  );
+
+  const FiltersPanel = () => (
+    <div className="workshop-filters-panel">
+      <div className="filters-header">
+        <h4>
+          <i className="bi bi-sliders2"></i>
+          Filtros de búsqueda
+        </h4>
+        <button type="button" onClick={resetFilters} disabled={workshopLoading} className="reset-filters-btn">
+          <i className="bi bi-arrow-counterclockwise"></i>
+          Limpiar filtros
+        </button>
+      </div>
+
+      <div className="filters-grid">
+        <div className="filter-group">
+          <label>
+            <i className="bi bi-sort-down"></i>
+            Ordenar por
+          </label>
+          <select value={filters.sort} onChange={(event) => updateFilter('sort', event.target.value)} className="filter-select">
+            <option value="trend"><i className="bi bi-graph-up"></i> Tendencia</option>
+            <option value="popular"><i className="bi bi-star-fill"></i> Más populares</option>
+            <option value="favorites"><i className="bi bi-heart-fill"></i> Más favoritos</option>
+            <option value="recent"><i className="bi bi-clock-history"></i> Recientes</option>
+            <option value="updated"><i className="bi bi-arrow-repeat"></i> Actualizados</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label>
+            <i className="bi bi-calendar"></i>
+            Periodo
+          </label>
+          <select value={filters.time} onChange={(event) => updateFilter('time', event.target.value)} className="filter-select">
+            <option value="all"><i className="bi bi-infinity"></i> Todo el tiempo</option>
+            <option value="week"><i className="bi bi-calendar-week"></i> Última semana</option>
+            <option value="month"><i className="bi bi-calendar-month"></i> Último mes</option>
+            <option value="quarter"><i className="bi bi-calendar-range"></i> Últimos 3 meses</option>
+            <option value="year"><i className="bi bi-calendar-year"></i> Último año</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label>
+            <i className="bi bi-tag"></i>
+            Tipo de wallpaper
+          </label>
+          <select value={filters.type} onChange={(event) => updateFilter('type', event.target.value)} className="filter-select">
+            {TYPE_TAGS.map(tag => (
+              <option key={tag.value} value={tag.value}>
+                <i className={`bi ${tag.icon}`}></i> {tag.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-quick-suggestions">
+          <span className="suggestions-label">
+            <i className="bi bi-lightbulb"></i>
+            Búsquedas populares:
+          </span>
+          <div className="suggestions-tags">
+            {['anime', 'nature', 'cyberpunk', 'abstract', 'game', 'space', 'city', 'fantasy'].map(suggestion => (
+              <button
+                key={suggestion}
+                className="suggestion-tag"
+                onClick={() => {
+                  setQuery(suggestion);
+                  searchWorkshop(null, { query: suggestion });
+                }}
+              >
+                <i className="bi bi-search"></i>
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="steam-integration">
       <div className="steam-header">
         <div>
-          <h2>{favoritesOnly ? 'Wallpapers que te gustan' : 'Steam Wallpaper Engine'}</h2>
+          <h2>
+            {favoritesOnly ? (
+              <>
+                <i className="bi bi-heart-fill text-danger"></i>
+                Wallpapers que te gustan
+              </>
+            ) : (
+              <>
+                <i className="bi bi-steam"></i>
+                Steam Wallpaper Engine
+              </>
+            )}
+          </h2>
           {!favoritesOnly && (
-            <p>Descubre, previsualiza y descarga los mejores wallpapers animados de la comunidad de Wallpaper Engine.</p>
+            <p>
+              <i className="bi bi-magic"></i>
+              Descubre, previsualiza y descarga los mejores wallpapers animados de la comunidad de Wallpaper Engine.
+            </p>
           )}
         </div>
         <div className="steam-controls">
-          <button 
+          <button
             onClick={handleRefresh}
             disabled={loading}
             className="refresh-btn"
           >
-            🔄 Actualizar
+            <i className={`bi ${loading ? 'bi-arrow-repeat spin-icon' : 'bi-arrow-clockwise'}`}></i>
+            <span>Actualizar</span>
           </button>
         </div>
       </div>
 
       {error && (
         <div className="steam-error">
-          <p>⚠️ {error}</p>
-          <small>Asegúrate que Wallpaper Engine esté instalado en Steam</small>
+          <i className="bi bi-exclamation-triangle-fill"></i>
+          <div>
+            <p>⚠️ {error}</p>
+            <small>Asegúrate que Wallpaper Engine esté instalado en Steam</small>
+          </div>
         </div>
       )}
 
       {!favoritesOnly && (
-      <section className="workshop-panel">
-        <div className="workshop-panel-header">
-          <div>
-            <h3>Explorar Workshop</h3>
-            <p>Busca wallpapers increibles creados por la comunidad de Wallpaper Engine.</p>
+        <section className="workshop-panel">
+          <div className="workshop-panel-header">
+            <div>
+              <h3>
+                <i className="bi bi-shop"></i>
+                Explorar Workshop
+              </h3>
+              <p>Busca wallpapers increíbles creados por la comunidad de Wallpaper Engine.</p>
+            </div>
+            {/* <span className={`downloader-status ${downloaderStatus?.hasDownloader ? 'ready' : 'missing'}`}>
+              <i className={`bi bi-${downloaderStatus?.hasDownloader ? 'check-circle-fill' : 'exclamation-circle-fill'}`}></i>
+              {downloaderStatus?.hasDownloader ? 'Listo para descargar' : 'Descarga no configurada'}
+            </span> */}
           </div>
-          <span className={`downloader-status ${downloaderStatus?.hasDownloader ? 'ready' : 'missing'}`}>
-            {downloaderStatus?.hasDownloader ? 'Listo para descargar' : 'Descarga no configurada'}
-          </span>
-        </div>
 
-        {!downloaderStatus?.hasDownloader && (
-          <div className="steam-error">
-            <p>No encontre una herramienta de descarga compatible.</p>
-            <small>Abre Configuracion para revisar el diagnostico.</small>
-          </div>
-        )}
-
-        <form className="workshop-search" onSubmit={searchWorkshop}>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Busca por nombre, etiquetas, autor..."
-          />
-          <button type="button" className="filter-toggle-btn" onClick={() => setShowFilters(current => !current)}>
-            Filtros
-          </button>
-        </form>
-
-        {showFilters && (
-        <div className="workshop-filters">
-          <label>
-            Ordenar por
-            <select value={filters.sort} onChange={(event) => updateFilter('sort', event.target.value)}>
-              <option value="trend">Tendencia</option>
-              <option value="popular">Mas populares</option>
-              <option value="favorites">Mas favoritos</option>
-              <option value="recent">Recientes</option>
-              <option value="updated">Actualizados</option>
-            </select>
-          </label>
-
-          <label>
-            Periodo
-            <select value={filters.time} onChange={(event) => updateFilter('time', event.target.value)}>
-              <option value="all">Todo el tiempo</option>
-              <option value="week">Ultima semana</option>
-              <option value="month">Ultimo mes</option>
-              <option value="quarter">Ultimos 3 meses</option>
-              <option value="year">Ultimo ano</option>
-            </select>
-          </label>
-
-          <label>
-            Tipo
-            <select value={filters.type} onChange={(event) => updateFilter('type', event.target.value)}>
-              {TYPE_TAGS.map(tag => (
-                <option key={tag.value} value={tag.value}>{tag.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className="workshop-filter-actions">
-            <button type="button" onClick={resetFilters} disabled={workshopLoading}>Limpiar</button>
-          </div>
-        </div>
-        )}
-
-        <button type="button" className="workshop-submit" onClick={searchWorkshop} disabled={workshopLoading}>
-          {workshopLoading ? 'Buscando...' : 'Buscar'}
-        </button>
-
-        {workshopError && (
-          <div className="steam-error">
-            <p>{workshopError}</p>
-            <small>Revisa Configuracion para ver el log de diagnostico.</small>
-          </div>
-        )}
-
-        {!workshopLoading && !workshopError && workshopWallpapers.length === 0 && (
-          <div className="steam-empty workshop-empty">
-            <p>No hay resultados con estos filtros</p>
-            <small>Prueba otro tipo, periodo u orden.</small>
-          </div>
-        )}
-
-        {visibleWorkshopWallpapers.length > 0 && (
-          <>
-          <div className="steam-stats workshop-stats">
-            <h3>Resultados</h3>
-            <p>{workshopTotal.toLocaleString()} resultados encontrados</p>
-          </div>
-          <div className="steam-grid workshop-grid virtual-grid">
-            {visibleWorkshopWallpapers.map(wallpaper => (
-              <WorkshopCard
-                key={wallpaper.publishedFileId}
-                wallpaper={wallpaper}
-                downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
-                isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
-                isDownloading={downloadingId === getWallpaperId(wallpaper)}
-                isDeleting={deletingId === getWallpaperId(wallpaper)}
-                downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
-                onOpen={setDetailWallpaper}
-                onDownload={downloadWorkshopWallpaper}
-                onDelete={deleteWorkshopWallpaper}
-                onToggleFavorite={toggleFavorite}
-              />
-            ))}
-          </div>
-          {!favoritesOnly && hasMoreWorkshop && (
-            <div ref={loadMoreRef} className="gallery-loader workshop-loader">
-              {workshopLoading ? 'Cargando mas wallpapers...' : 'Preparando mas resultados...'}
+          {!downloaderStatus?.hasDownloader && (
+            <div className="steam-error">
+              <i className="bi bi-tools"></i>
+              <div>
+                <p>No encontré una herramienta de descarga compatible.</p>
+                <small>Abre Configuración para revisar el diagnóstico.</small>
+              </div>
             </div>
           )}
-          </>
-        )}
-      </section>
+
+          <form className="workshop-search-form" onSubmit={searchWorkshop}>
+            <SearchBar />
+            {showFilters && <FiltersPanel />}
+          </form>
+
+          {workshopError && (
+            <div className="steam-error">
+              <i className="bi bi-bug-fill"></i>
+              <div>
+                <p>{workshopError}</p>
+                <small>Revisa Configuración para ver el log de diagnóstico.</small>
+              </div>
+            </div>
+          )}
+
+          {!workshopLoading && !workshopError && workshopWallpapers.length === 0 && (
+            <div className="steam-empty workshop-empty">
+              <i className="bi bi-inbox"></i>
+              <p>No hay resultados con estos filtros</p>
+              <small>Prueba otro tipo, período u orden.</small>
+            </div>
+          )}
+
+          {visibleWorkshopWallpapers.length > 0 && (
+            <>
+              <div className="steam-stats workshop-stats">
+                <div className="stats-left">
+                  <i className="bi bi-grid-3x3-gap-fill"></i>
+                  <h3>Resultados</h3>
+                </div>
+                <div className="stats-right">
+                  <i className="bi bi-database"></i>
+                  <p>{workshopTotal.toLocaleString()} resultados encontrados</p>
+                </div>
+              </div>
+              <div className="steam-grid workshop-grid virtual-grid">
+                {visibleWorkshopWallpapers.map(wallpaper => (
+                  <WorkshopCard
+  key={wallpaper.publishedFileId}
+  wallpaper={wallpaper}
+  downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
+  isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
+  isDownloading={downloadingId === getWallpaperId(wallpaper)}
+  isDeleting={deletingId === getWallpaperId(wallpaper)}
+  downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
+  onOpen={(wallpaperItem) => {
+    // wallpaperItem ya viene mergeado de WorkshopCard
+    setDetailWallpaper(wallpaperItem);
+  }}
+  onDownload={downloadWorkshopWallpaper}
+  onDelete={deleteWorkshopWallpaper}
+  onToggleFavorite={toggleFavorite}
+/>
+                ))}
+              </div>
+              {!favoritesOnly && hasMoreWorkshop && (
+                <div ref={loadMoreRef} className="gallery-loader workshop-loader">
+                  {workshopLoading ? (
+                    <>
+                      <i className="bi bi-arrow-repeat spin-icon"></i>
+                      Cargando más wallpapers...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-chevron-double-down"></i>
+                      Desplázate para más resultados
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {favoritesOnly && (
         <section className="workshop-panel">
           {workshopError && (
             <div className="steam-error">
-              <p>{workshopError}</p>
-              <small>Revisa Configuracion para ver el log de diagnostico.</small>
+              <i className="bi bi-bug-fill"></i>
+              <div>
+                <p>{workshopError}</p>
+                <small>Revisa Configuración para ver el log de diagnóstico.</small>
+              </div>
             </div>
           )}
           {favorites.length === 0 ? (
             <div className="steam-empty workshop-empty">
+              <i className="bi bi-heart"></i>
               <p>No tienes wallpapers marcados con me gusta</p>
-              <small>Marca wallpapers desde Steam Workshop para verlos aqui.</small>
+              <small>Marca wallpapers desde Steam Workshop para verlos aquí.</small>
             </div>
           ) : (
             <>
               <div className="steam-stats workshop-stats">
-                <h3>Me gusta</h3>
-                <p>{favorites.length} wallpapers marcados</p>
+                <div className="stats-left">
+                  <i className="bi bi-heart-fill text-danger"></i>
+                  <h3>Me gusta</h3>
+                </div>
+                <div className="stats-right">
+                  <i className="bi bi-collection"></i>
+                  <p>{favorites.length} wallpapers marcados</p>
+                </div>
               </div>
               <div className="steam-grid workshop-grid virtual-grid">
                 {favorites.map(wallpaper => (
@@ -1128,73 +1149,19 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
 
       {!favoritesOnly && loading && (
         <div className="steam-loading">
+          <i className="bi bi-arrow-repeat spin-icon"></i>
           <p>Cargando wallpapers...</p>
         </div>
       )}
 
       {!favoritesOnly && !loading && steamWallpapers.length === 0 && !error && (
         <div className="steam-empty">
+          <i className="bi bi-steam"></i>
           <p>No se encontraron wallpapers de Steam Wallpaper Engine</p>
           <small>Instala Wallpaper Engine desde Steam para ver tus wallpapers aquí</small>
         </div>
       )}
 
-      {!favoritesOnly && steamWallpapers.length > 0 && (
-        <>
-          <div className="steam-stats">
-            <p>{steamWallpapers.length} wallpapers encontrados</p>
-          </div>
-          <div className="steam-grid">
-            {steamWallpapers.map((wallpaper, index) => (
-              <div 
-                key={index}
-                className={`steam-card ${selectedWallpaper?.mediaUrl === wallpaper.mediaUrl ? 'active' : ''}`}
-              >
-                <div className="steam-card-image">
-                  {isVideoWallpaper(wallpaper) && (wallpaper.playbackUrl || wallpaper.mediaUrl) ? (
-                    <video
-                      src={toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl)}
-                      poster={toPlayableUrl(wallpaper.previewUrl)}
-                      controls
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                    />
-                  ) : (wallpaper.previewUrl || wallpaper.playbackUrl || wallpaper.mediaUrl) && (
-                    <img 
-                      src={toPlayableUrl(wallpaper.previewUrl || wallpaper.playbackUrl || wallpaper.mediaUrl)}
-                      alt={wallpaper.title}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
-                  )}
-                  <div className="steam-card-overlay">
-                    <span className="steam-badge">{wallpaper.mediaType}</span>
-                  </div>
-                </div>
-                <div className="steam-card-info">
-                  <h4>{wallpaper.title}</h4>
-                  {wallpaper.author && (
-                    <p className="author">por {wallpaper.author}</p>
-                  )}
-                  {wallpaper.description && (
-                    <p className="description">{wallpaper.description}</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleSetAsWallpaper(wallpaper)}
-                  disabled={isSettingWallpaper}
-                  className="set-wallpaper-btn"
-                >
-                  {isSettingWallpaper ? '⏳ Estableciendo...' : '✓ Establecer como Fondo'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
       {downloadConfirmationDialog}
     </div>
   );

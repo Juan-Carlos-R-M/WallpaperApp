@@ -1,0 +1,140 @@
+{
+  "authors": {
+    "author-nature-1": {
+      "id": "author-nature-1",
+      "name": "Nature Photography",
+      "handle": "@nature.photo",
+      "description": "Fotografia profesional de naturaleza y paisajes tranquilos.",
+      "bio": "Creo fondos con luz natural, montanas, bosques y escenas pensadas para escritorios limpios.",
+      "followers": 1250,
+      "wallpapers": 24,
+      "likes": 18400,
+      "joined": "2021-03-12",
+      "socialUrl": "https://steamcommunity.com/workshop/"
+    },
+    "author-digital-1": {
+      "id": "author-digital-1",
+      "name": "Digital Artist",
+      "handle": "@digital.artist",
+      "description": "Arte abstracto, color y composiciones digitales.",
+      "bio": "Diseno wallpapers con colores vivos, patrones suaves y movimiento visual sin saturar la pantalla.",
+      "followers": 856,
+      "wallpapers": 18,
+      "likes": 9700,
+      "joined": "2022-01-08",
+      "socialUrl": "https://steamcommunity.com/workshop/"
+    },
+    "author-urban-1": {
+      "id": "author-urban-1",
+      "name": "Urban Photographer",
+      "handle": "@urban.frames",
+      "description": "Fotografia urbana, luces nocturnas y arquitectura.",
+      "bio": "Busco escenas de ciudad con contraste, lluvia, luces y profundidad para fondos de uso diario.",
+      "followers": 742,
+      "wallpapers": 32,
+      "likes": 12600,
+      "joined": "2020-09-20",
+      "socialUrl": "https://steamcommunity.com/workshop/"
+    },
+    "author-tech-1": {
+      "id": "author-tech-1",
+      "name": "Tech Designer",
+      "handle": "@tech.future",
+      "description": "Disenos futuristas, interfaces y atmosferas tecnologicas.",
+      "bio": "Trabajo con temas oscuros, luces de interfaz y composiciones para setups modernos.",
+      "followers": 1890,
+      "wallpapers": 45,
+      "likes": 30100,
+      "joined": "2019-11-02",
+      "socialUrl": "https://steamcommunity.com/workshop/"
+    },
+    "author-digital-pro-1": {
+      "id": "author-digital-pro-1",
+      "name": "Digital Artist Pro",
+      "handle": "@digital.pro",
+      "description": "Arte digital moderno con composiciones pulidas.",
+      "bio": "Publico ilustraciones digitales, escenas estilizadas y wallpapers con paletas cinematicas.",
+      "followers": 3456,
+      "wallpapers": 67,
+      "likes": 48200,
+      "joined": "2018-06-18",
+      "socialUrl": "https://steamcommunity.com/workshop/"
+    }
+  },
+  "wallpapers": {
+    "local-nature-1": {
+      "authorId": "author-nature-1",
+      "category": "nature",
+      "mediaType": "image",
+      "tags": ["Naturaleza", "Montanas", "Atardecer", "Paisaje"],
+      "resolution": "1920x1440",
+      "fileSize": 5242880,
+      "views": 39200,
+      "downloads": 1250,
+      "likes": 892,
+      "score": 4.8,
+      "timeCreated": "2024-01-15",
+      "timeUpdated": "2024-02-02"
+    },
+    "local-abstract-1": {
+      "authorId": "author-digital-1",
+      "category": "abstract",
+      "mediaType": "image",
+      "tags": ["Abstracto", "Color", "Digital", "Arte"],
+      "resolution": "1920x1440",
+      "fileSize": 4194304,
+      "views": 28700,
+      "downloads": 892,
+      "likes": 654,
+      "score": 4.6,
+      "timeCreated": "2024-01-10",
+      "timeUpdated": "2024-01-29"
+    },
+    "local-urban-1": {
+      "authorId": "author-urban-1",
+      "category": "urban",
+      "mediaType": "image",
+      "tags": ["Ciudad", "Noche", "Luces", "Urbano"],
+      "resolution": "1920x1440",
+      "fileSize": 6291456,
+      "views": 45100,
+      "downloads": 645,
+      "likes": 523,
+      "score": 4.5,
+      "timeCreated": "2024-01-05",
+      "timeUpdated": "2024-01-21"
+    },
+    "local-technology-1": {
+      "authorId": "author-tech-1",
+      "category": "technology",
+      "mediaType": "image",
+      "tags": ["Tecnologia", "Futuro", "Oscuro", "Setup"],
+      "resolution": "1920x1440",
+      "fileSize": 4718592,
+      "views": 32600,
+      "downloads": 934,
+      "likes": 712,
+      "score": 4.7,
+      "timeCreated": "2024-01-08",
+      "timeUpdated": "2024-02-04"
+    },
+    "local-art-1": {
+      "authorId": "author-digital-pro-1",
+      "category": "art",
+      "mediaType": "image",
+      "tags": ["Arte", "Digital", "Ilustracion", "Cinematico"],
+      "resolution": "1920x1440",
+      "fileSize": 7340032,
+      "views": 38600,
+      "downloads": 1567,
+      "likes": 1234,
+      "score": 4.9,
+      "timeCreated": "2024-01-12",
+      "timeUpdated": "2024-02-06"
+    }
+  },
+  "remoteLookup": {
+    "workshopBaseUrl": "https://steamcommunity.com/sharedfiles/filedetails/?id=",
+    "notes": "Fallback local para completar informacion cuando un wallpaper descargado no conserva todos los metadatos del Workshop."
+  }
+}

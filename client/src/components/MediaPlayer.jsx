@@ -1,16 +1,13 @@
 import React, { useEffect, useRef, memo } from 'react';
-import { toPlayableUrl } from '../utils/mediaUrl';
+import { getPreviewUrl, getVideoPlaybackUrl, isVideoWallpaper } from '../utils/wallpaperMeta';
 import '../styles/media-player.css';
-
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i;
 
 const MediaPlayer = memo(({ wallpaper, isHovered, showControls = false }) => {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
-  const mediaUrl = toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl || wallpaper.previewUrl || wallpaper.image?.url || wallpaper.preview?.url);
-  const previewUrl = toPlayableUrl(wallpaper.previewUrl || wallpaper.preview?.url || wallpaper.image?.url || mediaUrl);
-  const isVideo = wallpaper.mediaType === 'video'
-    || VIDEO_EXTENSIONS.test([wallpaper.playbackUrl, wallpaper.mediaUrl, mediaUrl].filter(Boolean).join(' '));
+  const videoUrl = getVideoPlaybackUrl(wallpaper);
+  const previewUrl = getPreviewUrl(wallpaper);
+  const isVideo = isVideoWallpaper(wallpaper) && Boolean(videoUrl);
 
   useEffect(() => {
     if (!videoRef.current || !isVideo) return;
@@ -21,7 +18,7 @@ const MediaPlayer = memo(({ wallpaper, isHovered, showControls = false }) => {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isHovered, isVideo, mediaUrl]);
+  }, [isHovered, isVideo, videoUrl]);
 
   const renderMedia = () => {
     switch (true) {
@@ -35,14 +32,14 @@ const MediaPlayer = memo(({ wallpaper, isHovered, showControls = false }) => {
             playsInline
             preload="metadata"
             poster={previewUrl}
-            src={mediaUrl}
+            src={videoUrl}
             {...(showControls && { controls: true, autoPlay: true })}
           />
         );
       case wallpaper.mediaType === 'gif':
         return (
           <img
-            src={mediaUrl}
+            src={previewUrl}
             alt={wallpaper.title}
             className="media-gif"
             loading="lazy"

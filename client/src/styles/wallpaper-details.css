@@ -5,7 +5,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.85);
+  background-color: rgb(var(--color-bg-rgb) / 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,21 +15,21 @@
 }
 
 .wallpaper-details-modal {
-  background: #1a1a1a;
+  background: var(--color-bg-muted);
   border-radius: 12px;
   max-width: 1200px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
   position: relative;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgb(var(--color-bg-rgb) / 0.5);
 }
 
 .modal-close {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgb(var(--color-white-rgb) / 0.1);
   border: none;
   color: white;
   font-size: 28px;
@@ -45,7 +45,7 @@
 }
 
 .modal-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--color-white-rgb) / 0.2);
 }
 
 .details-container {
@@ -60,7 +60,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--color-white-rgb) / 0.05);
   border-radius: 8px;
   overflow: hidden;
   position: relative;
@@ -127,7 +127,7 @@
 }
 
 .details-author-section {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgb(var(--color-white-rgb) / 0.1);
   padding-top: 20px;
 }
 
@@ -180,12 +180,12 @@
 }
 
 .view-author-btn {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgb(var(--color-white-rgb) / 0.1);
   color: white;
 }
 
 .view-author-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgb(var(--color-white-rgb) / 0.15);
 }
 
 .subscribe-btn {
@@ -198,7 +198,7 @@
 }
 
 .subscribe-btn.subscribed {
-  background: #4caf50;
+  background: var(--color-success);
 }
 
 .subscribe-btn.subscribed:hover {
@@ -216,7 +216,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--color-white-rgb) / 0.05);
   border-radius: 4px;
 }
 
@@ -236,7 +236,7 @@
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgb(var(--color-white-rgb) / 0.1);
   padding-top: 20px;
 }
 
@@ -253,7 +253,7 @@
 }
 
 .repair-btn {
-  background: #ff9800;
+  background: var(--color-warning);
   color: white;
 }
 
@@ -262,7 +262,7 @@
 }
 
 .delete-btn {
-  background: #f44336;
+  background: var(--color-danger);
   color: white;
 }
 
@@ -271,7 +271,7 @@
 }
 
 .download-btn {
-  background: #4caf50;
+  background: var(--color-success);
   color: white;
   flex: 2;
 }
@@ -286,7 +286,7 @@ button:disabled {
 }
 
 .recommended-wallpapers {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgb(var(--color-white-rgb) / 0.1);
   padding: 40px;
 }
 
@@ -366,4 +366,64 @@ button:disabled {
   .recommended-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  /* Agrega esto al inicio de wallpaper-details.css o modifica los colores existentes */
+
+.wallpaper-details-overlay {
+  background-color: rgb(var(--color-bg-rgb) / 0.85);
+}
+
+.wallpaper-details-modal {
+  background: var(--color-bg-muted);
+  border: 1px solid rgb(var(--color-accent-rgb) / 0.3);
+}
+
+.modal-close {
+  background: rgb(var(--color-accent-rgb) / 0.2);
+  color: var(--color-accent-soft);
+}
+
+.modal-close:hover {
+  background: rgb(var(--color-accent-rgb) / 0.4);
+}
+
+.details-category {
+  background: var(--color-accent);
+}
+
+.subscribe-btn {
+  background: var(--color-accent);
+}
+
+.subscribe-btn:hover {
+  background: var(--color-accent-hot);
+}
+
+.subscribe-btn.subscribed {
+  background: var(--color-success);
+}
+
+.download-btn {
+  background: linear-gradient(135deg, var(--color-accent-hot), var(--color-accent-strong));
+}
+
+.download-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-accent));
+}
+
+.repair-btn {
+  background: var(--color-warning);
+}
+
+.delete-btn {
+  background: var(--color-danger);
+}
+
+/* Stats con acento rojo */
+.stat-item {
+  border-left: 2px solid var(--color-accent);
+}
+
+.stat-value {
+  color: var(--color-accent-soft);
+}
 }

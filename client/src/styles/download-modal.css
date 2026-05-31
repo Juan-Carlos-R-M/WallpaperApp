@@ -1,7 +1,7 @@
 .download-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgb(var(--color-bg-rgb) / 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,25 +13,25 @@
 
 .download-modal {
   position: relative;
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--color-bg-muted);
+  color: var(--color-text);
   width: 90%;
   max-width: 900px;
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 20px 60px rgb(var(--color-bg-rgb) / 0.6);
   padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.05);
 }
 
 .modal-close {
   position: absolute;
   right: 20px;
   top: 16px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgb(var(--color-white-rgb) / 0.1);
   border: none;
-  color: #fff;
+  color: var(--color-text);
   font-size: 28px;
   cursor: pointer;
   width: 40px;
@@ -45,7 +45,7 @@
 }
 
 .modal-close:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--color-white-rgb) / 0.2);
 }
 
 .modal-content {
@@ -58,7 +58,7 @@
   flex-shrink: 0;
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgb(var(--color-bg-rgb) / 0.3);
 }
 
 .modal-preview img,
@@ -87,8 +87,8 @@
 .modal-message {
   margin: 0;
   padding: 12px 16px;
-  background: rgba(76, 175, 80, 0.2);
-  border-left: 3px solid #4caf50;
+  background: rgb(var(--color-success-rgb) / 0.2);
+  border-left: 3px solid var(--color-success);
   border-radius: 4px;
   color: #c8e6c9;
   font-size: 14px;
@@ -120,16 +120,16 @@
 }
 
 .modal-actions .close-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgb(var(--color-white-rgb) / 0.1);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.2);
 }
 
 .modal-actions .close-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgb(var(--color-white-rgb) / 0.15);
 }
 
 .modal-actions .repair-btn {
-  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  background: linear-gradient(135deg, var(--color-warning) 0%, #f57c00 100%);
   box-shadow: 0 4px 12px rgba(255, 152, 0, 0.3);
 }
 
@@ -139,7 +139,7 @@
 }
 
 .modal-actions .delete-btn {
-  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+  background: linear-gradient(135deg, var(--color-danger) 0%, #d32f2f 100%);
   box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
 }
 

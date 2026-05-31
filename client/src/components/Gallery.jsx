@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import WallpaperCard from './WallpaperCard';
 import WallpaperDetails from './WallpaperDetails';
@@ -6,6 +6,17 @@ import AuthorProfile from './AuthorProfile';
 import { wallpapersUrl } from '../services/api';
 import { getLocalWallpapers } from '../data/sampleWallpapers';
 import { toPlayableUrl } from '../utils/mediaUrl';
+import { downloadWallpaperAsset } from '../utils/downloadWallpaper';
+import {
+  enrichWallpaperMetadata,
+  formatCompact,
+  getAuthorInfo,
+  getAuthorWallpapers,
+  getPreviewUrl,
+  getWallpaperId,
+  isDownloadedWallpaper,
+  sortSimilarWallpapers
+} from '../utils/wallpaperMeta';
 import '../styles/gallery.css';
 
 const PAGE_SIZE = 24;
@@ -19,33 +30,60 @@ const Gallery = ({ category = '', search = '' }) => {
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
   const [selectedAuthorId, setSelectedAuthorId] = useState(null);
   const [subscriptions, setSubscriptions] = useState({});
+  const [favorites, setFavorites] = useState([]);
+  const [activeFeed, setActiveFeed] = useState('recent');
+  const [viewMode, setViewMode] = useState('grid');
   const observerTarget = useRef(null);
 
-  // Load subscriptions from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('wallpaperApp.subscriptions');
-    if (saved) {
-      setSubscriptions(JSON.parse(saved));
+    try {
+      const savedSubscriptions = localStorage.getItem('wallpaperApp.subscriptions');
+      const savedFavorites = localStorage.getItem('wallpaperApp.workshopFavorites');
+      if (savedSubscriptions) setSubscriptions(JSON.parse(savedSubscriptions));
+      if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
+    } catch {
+      setSubscriptions({});
+      setFavorites([]);
     }
   }, []);
 
-  // Save subscriptions to localStorage
-  const handleSubscribe = useCallback((authorIdOrWallpaperId, isSubscribed) => {
+  const handleSubscribe = useCallback((authorId, isSubscribed) => {
+    if (!authorId) return;
     setSubscriptions(prev => {
-      const updated = { ...prev, [authorIdOrWallpaperId]: isSubscribed };
+      const updated = { ...prev, [authorId]: isSubscribed };
       localStorage.setItem('wallpaperApp.subscriptions', JSON.stringify(updated));
       return updated;
     });
   }, []);
 
-  const normalizeDesktopWallpaper = (wallpaper, index) => {
-    const downloadUrl = wallpaper.mediaUrl || wallpaper.playbackUrl || wallpaper.previewUrl;
+  const toggleFavorite = useCallback((wallpaper) => {
+    setFavorites(prev => {
+      const exists = prev.some(item => getWallpaperId(item) === getWallpaperId(wallpaper));
+      const nextFavorites = exists
+        ? prev.filter(item => getWallpaperId(item) !== getWallpaperId(wallpaper))
+        : [wallpaper, ...prev];
+
+      localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
+      return nextFavorites;
+    });
+  }, []);
+
+  const isFavorite = useCallback((wallpaper) => (
+    favorites.some(item => getWallpaperId(item) === getWallpaperId(wallpaper))
+  ), [favorites]);
+
+  const normalizeDesktopWallpaper = useCallback((wallpaper, index) => {
+    const enriched = enrichWallpaperMetadata(wallpaper);
+    const downloadUrl = wallpaper.downloadUrl || wallpaper.mediaUrl || wallpaper.playbackUrl || wallpaper.previewUrl;
     const mediaUrl = toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl || wallpaper.previewUrl);
     const previewUrl = toPlayableUrl(wallpaper.previewUrl || wallpaper.playbackUrl || wallpaper.mediaUrl);
+    const wallpaperId = wallpaper.publishedFileId || wallpaper.localPath || wallpaper.mediaUrl || `wallpaper-engine-${index}`;
 
-    return {
-      ...wallpaper,
-      _id: wallpaper.localPath || wallpaper.mediaUrl || `wallpaper-engine-${index}`,
+    return enrichWallpaperMetadata({
+      ...enriched,
+      _id: wallpaperId,
+      id: wallpaper.publishedFileId || wallpaper.localPath || `wallpaper-${index}`,
+      publishedFileId: wallpaper.publishedFileId || `local-${index}`,
       downloadUrl,
       mediaUrl,
       playbackUrl: mediaUrl,
@@ -54,10 +92,22 @@ const Gallery = ({ category = '', search = '' }) => {
       image: { url: previewUrl },
       imageUrl: previewUrl,
       thumbnailUrl: previewUrl,
-      downloads: wallpaper.downloads || 0,
-      isSubscribed: subscriptions[wallpaper.authorId] || false
-    };
-  };
+      downloads: wallpaper.subscriptions || wallpaper.downloads || enriched.downloads || 0,
+      subscriptions: wallpaper.subscriptions || wallpaper.downloads || enriched.subscriptions || 0,
+      favorited: wallpaper.favorited || wallpaper.likes || enriched.favorited || 0,
+      likes: wallpaper.favorited || wallpaper.likes || enriched.likes || 0,
+      isSubscribed: Boolean(subscriptions[enriched.authorId || wallpaper.authorId]),
+      mediaType: wallpaper.mediaType || enriched.mediaType || (wallpaper.playbackUrl?.match(/\.(mp4|webm|mov)/i) ? 'video' : 'image'),
+      authorId: enriched.authorId || wallpaper.authorId || wallpaper.author,
+      author: enriched.author || wallpaper.author,
+      tags: wallpaper.tags?.length ? wallpaper.tags : enriched.tags || [],
+      score: wallpaper.score || wallpaper.rating?.average || enriched.score || 0,
+      url: wallpaper.url || wallpaper.localPath || wallpaper.playbackUrl || wallpaper.mediaUrl,
+      timeCreated: wallpaper.timeCreated || wallpaper.uploadDate || enriched.timeCreated,
+      timeUpdated: wallpaper.timeUpdated || wallpaper.updatedDate || enriched.timeUpdated,
+      fileSize: wallpaper.fileSize || enriched.fileSize
+    });
+  }, [subscriptions]);
 
   const filterDesktopWallpapers = useCallback((items) => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -70,11 +120,12 @@ const Gallery = ({ category = '', search = '' }) => {
           wallpaper.title,
           wallpaper.description,
           wallpaper.author,
-          wallpaper.localPath
+          wallpaper.localPath,
+          wallpaper.tags?.join(' ')
         ].some(value => String(value || '').toLowerCase().includes(normalizedSearch));
       })
-      .map(normalizeDesktopWallpaper);
-  }, [search, subscriptions]);
+      .map((wallpaper, index) => normalizeDesktopWallpaper(wallpaper, index));
+  }, [search, normalizeDesktopWallpaper]);
 
   const fetchWallpapers = useCallback(async (pageNum = 1, reset = false) => {
     try {
@@ -102,35 +153,26 @@ const Gallery = ({ category = '', search = '' }) => {
         return;
       }
 
-      const params = new URLSearchParams({
-        page: pageNum,
-        limit: PAGE_SIZE
-      });
-
+      const params = new URLSearchParams({ page: pageNum, limit: PAGE_SIZE });
       if (category) params.append('category', category);
       if (search) params.append('search', search);
 
       const response = await axios.get(wallpapersUrl(`?${params}`));
+      const nextItems = (response.data.data || []).map(enrichWallpaperMetadata);
 
-      if (reset) {
-        setWallpapers(response.data.data);
-      } else {
-        setWallpapers(prev => [...prev, ...response.data.data]);
-      }
-
+      setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
       setHasMore(response.data.pagination.page < response.data.pagination.pages);
       setPage(pageNum);
+      setError(null);
     } catch (err) {
+      console.error('Error fetching wallpapers:', err);
       const fallback = getLocalWallpapers({ page: pageNum, limit: PAGE_SIZE, category, search });
-      if (reset) {
-        setWallpapers(fallback.data);
-      } else {
-        setWallpapers(prev => [...prev, ...fallback.data]);
-      }
+      const nextItems = fallback.data.map(enrichWallpaperMetadata);
+
+      setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
       setHasMore(fallback.pagination.page < fallback.pagination.pages);
       setPage(pageNum);
       setError(null);
-      console.error('Error:', err);
     } finally {
       setLoading(false);
     }
@@ -138,10 +180,10 @@ const Gallery = ({ category = '', search = '' }) => {
 
   useEffect(() => {
     setPage(1);
+    setWallpapers([]);
     fetchWallpapers(1, true);
-  }, [category, search]);
+  }, [category, search, fetchWallpapers]);
 
-  // Intersection Observer para cargar más cuando se alcanza el final
   useEffect(() => {
     const observer = new IntersectionObserver(
       entries => {
@@ -149,7 +191,7 @@ const Gallery = ({ category = '', search = '' }) => {
           fetchWallpapers(page + 1);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '200px' }
     );
 
     if (observerTarget.current) {
@@ -160,67 +202,320 @@ const Gallery = ({ category = '', search = '' }) => {
   }, [fetchWallpapers, page, hasMore, loading]);
 
   const handleOpenDetails = (wallpaper) => {
-    setSelectedWallpaper(wallpaper);
+    setSelectedWallpaper(enrichWallpaperMetadata(wallpaper));
   };
 
-  const handleRepair = (wallpaper) => {
-    console.log('Reparar wallpaper:', wallpaper.title);
-    alert(`Reparando ${wallpaper.title}...`);
+  const handleOpenAuthor = (authorId) => {
+    setSelectedAuthorId(authorId);
+  };
+
+  const handleRepair = async (wallpaper) => {
+    try {
+      const result = await downloadWallpaperAsset(wallpaper);
+      alert(`Wallpaper "${wallpaper.title}" reparado correctamente${result.fileName ? `: ${result.fileName}` : ''}`);
+    } catch (repairError) {
+      alert(`Error al reparar: ${repairError.message}`);
+    }
   };
 
   const handleDelete = (wallpaper) => {
-    console.log('Eliminar wallpaper:', wallpaper.title);
-    alert(`Eliminando ${wallpaper.title}...`);
+    const wallpaperId = String(wallpaper.publishedFileId || '');
+
+    if (window.electronAPI?.deleteWorkshopWallpaper && /^\d+$/.test(wallpaperId)) {
+      if (!confirm(`Estas seguro de que deseas eliminar "${wallpaper.title}"?`)) return;
+
+      window.electronAPI.deleteWorkshopWallpaper({ publishedFileId: wallpaperId }).then(result => {
+        if (result.success) {
+          setWallpapers(prev => prev.filter(w => getWallpaperId(w) !== getWallpaperId(wallpaper)));
+          if (selectedWallpaper && getWallpaperId(selectedWallpaper) === getWallpaperId(wallpaper)) {
+            setSelectedWallpaper(null);
+          }
+          alert(`Wallpaper "${wallpaper.title}" eliminado`);
+        } else {
+          alert(`Error al eliminar: ${result.error}`);
+        }
+      });
+      return;
+    }
+
+    if (!window.electronAPI?.deleteWallpaperFile || !wallpaper.localPath) {
+      alert(`No puedo eliminar "${wallpaper.title}" porque no tiene una ruta local valida.`);
+      return;
+    }
+
+    if (!confirm(`Estas seguro de que deseas eliminar "${wallpaper.title}"?`)) return;
+
+    window.electronAPI.deleteWallpaperFile(wallpaper).then(result => {
+      if (result.success) {
+        setWallpapers(prev => prev.filter(w => getWallpaperId(w) !== getWallpaperId(wallpaper)));
+        if (selectedWallpaper && getWallpaperId(selectedWallpaper) === getWallpaperId(wallpaper)) {
+          setSelectedWallpaper(null);
+        }
+        alert(`Wallpaper "${wallpaper.title}" eliminado`);
+      } else {
+        alert(`Error al eliminar: ${result.error}`);
+      }
+    });
   };
 
+  const getRelatedWallpapers = useCallback((currentWallpaper) => (
+    sortSimilarWallpapers(currentWallpaper, wallpapers).slice(0, 12)
+  ), [wallpapers]);
+
+  const getMoreFromAuthor = useCallback((currentWallpaper) => (
+    getAuthorWallpapers(currentWallpaper, wallpapers).slice(0, 12)
+  ), [wallpapers]);
+
+  const galleryStats = useMemo(() => {
+    const totals = wallpapers.reduce((acc, wallpaper) => ({
+      downloads: acc.downloads + Number(wallpaper.downloads || wallpaper.subscriptions || 0),
+      likes: acc.likes + Number(wallpaper.likes || wallpaper.favorited || 0)
+    }), { downloads: 0, likes: 0 });
+
+    const authors = new Set(wallpapers.map(wallpaper => wallpaper.authorId || wallpaper.author).filter(Boolean));
+
+    return {
+      wallpapers: wallpapers.length,
+      authors: authors.size,
+      downloads: totals.downloads,
+      likes: totals.likes
+    };
+  }, [wallpapers]);
+
+  const featuredAuthors = useMemo(() => {
+    const authorMap = new Map();
+
+    wallpapers.forEach(wallpaper => {
+      const authorId = wallpaper.authorId || wallpaper.author || 'Autor';
+      const authorInfo = getAuthorInfo(wallpaper);
+      const current = authorMap.get(authorId) || {
+        id: authorId,
+        name: authorInfo?.name || wallpaper.author || authorId,
+        handle: authorInfo?.handle || `@${String(authorId).slice(0, 14)}`,
+        followers: authorInfo?.followers || 0,
+        preview: getPreviewUrl(wallpaper),
+        count: 0,
+        likes: 0
+      };
+
+      current.count += 1;
+      current.likes += Number(wallpaper.likes || wallpaper.favorited || 0);
+      if (!current.preview) current.preview = getPreviewUrl(wallpaper);
+      authorMap.set(authorId, current);
+    });
+
+    return [...authorMap.values()]
+      .sort((left, right) => (right.followers + right.likes) - (left.followers + left.likes))
+      .slice(0, 6);
+  }, [wallpapers]);
+
+  const sortedWallpapers = useMemo(() => {
+    const sorted = [...wallpapers];
+
+    if (activeFeed === 'popular') {
+      sorted.sort((left, right) => Number(right.likes || right.favorited || 0) - Number(left.likes || left.favorited || 0));
+    } else if (activeFeed === 'downloads') {
+      sorted.sort((left, right) => Number(right.downloads || right.subscriptions || 0) - Number(left.downloads || left.subscriptions || 0));
+    } else {
+      sorted.sort((left, right) => Number(new Date(right.timeCreated || 0)) - Number(new Date(left.timeCreated || 0)));
+    }
+
+    return sorted;
+  }, [activeFeed, wallpapers]);
+
+  const heroWallpaper = sortedWallpapers[0] || wallpapers[0];
+  const heroPreview = heroWallpaper ? getPreviewUrl(heroWallpaper) : '';
+
   if (error) {
-    return <div className="gallery-error">{error}</div>;
+    return (
+      <div className="gallery-error">
+        <i className="bi bi-exclamation-triangle-fill"></i>
+        <p>{error}</p>
+        <button onClick={() => fetchWallpapers(1, true)} className="retry-btn">
+          <i className="bi bi-arrow-repeat"></i> Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (selectedWallpaper) {
+    const relatedWallpapers = getRelatedWallpapers(selectedWallpaper);
+    const directAuthorWallpapers = getMoreFromAuthor(selectedWallpaper);
+    const authorWallpapers = directAuthorWallpapers.length > 0
+      ? directAuthorWallpapers
+      : relatedWallpapers.slice(0, 8);
+    const isWallpaperDownloaded = isDownloadedWallpaper(selectedWallpaper);
+    const isWorkshopWallpaper = Boolean(
+      selectedWallpaper.fromSteam
+      || selectedWallpaper.installed
+      || /^\d+$/.test(String(selectedWallpaper.publishedFileId || ''))
+    );
+
+    return (
+      <div className="gallery">
+        <WallpaperDetails
+          wallpaper={selectedWallpaper}
+          onClose={() => setSelectedWallpaper(null)}
+          onDownload={handleRepair}
+          onDelete={handleDelete}
+          onToggleFavorite={toggleFavorite}
+          onOpenAuthor={handleOpenAuthor}
+          onSubscribe={handleSubscribe}
+          isDownloaded={isWallpaperDownloaded}
+          isFavorite={isFavorite(selectedWallpaper)}
+          isSubscribed={Boolean(subscriptions[selectedWallpaper.authorId])}
+          repairing={false}
+          deleting={false}
+          downloaderReady={true}
+          relatedWallpapers={relatedWallpapers}
+          authorWallpapers={authorWallpapers}
+          onOpenRelated={handleOpenDetails}
+          sourceName={isWorkshopWallpaper ? 'Workshop' : 'Galeria local'}
+          sourceIcon={isWorkshopWallpaper ? 'steam' : 'hdd-stack'}
+        />
+
+        {selectedAuthorId && (
+          <AuthorProfile
+            authorId={selectedAuthorId}
+            allWallpapers={wallpapers}
+            subscriptions={subscriptions}
+            onClose={() => setSelectedAuthorId(null)}
+            onSubscribe={handleSubscribe}
+            onOpenWallpaper={handleOpenDetails}
+          />
+        )}
+      </div>
+    );
   }
 
   return (
     <div className="gallery">
       {wallpapers.length === 0 && !loading ? (
         <div className="gallery-empty">
+          <i className="bi bi-images"></i>
           <p>No hay wallpapers disponibles</p>
+          {search && <small>Intenta con otra busqueda</small>}
         </div>
       ) : (
         <>
-          <div className="gallery-grid">
-            {wallpapers.map(wallpaper => (
-              <WallpaperCard 
-                key={wallpaper._id} 
+          <section
+            className="gallery-hero"
+            style={heroPreview ? { '--gallery-hero-image': `url("${heroPreview}")` } : undefined}
+          >
+            <div className="gallery-hero-content">
+              <h2>Wallpaper Gallery</h2>
+              <p>Descubre miles de wallpapers increibles</p>
+
+              <div className="gallery-hero-stats">
+                <span><i className="bi bi-image"></i><strong>{formatCompact(galleryStats.wallpapers)}</strong><small>Wallpapers</small></span>
+                <span><i className="bi bi-people"></i><strong>{formatCompact(galleryStats.authors)}</strong><small>Autores</small></span>
+                <span><i className="bi bi-download"></i><strong>{formatCompact(galleryStats.downloads)}</strong><small>Descargas</small></span>
+                <span><i className="bi bi-heart"></i><strong>{formatCompact(galleryStats.likes)}</strong><small>Me gusta</small></span>
+              </div>
+
+              <div className="gallery-hero-actions">
+                <button type="button" onClick={() => window.scrollTo({ top: 360, behavior: 'smooth' })}>
+                  <i className="bi bi-compass"></i> Explorar
+                </button>
+                <button type="button" onClick={() => setActiveFeed('popular')}>
+                  <i className="bi bi-fire"></i> Mas populares
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <div className="gallery-toolbar">
+            <div className="gallery-feed-tabs" aria-label="Orden rapido">
+              <button type="button" className={activeFeed === 'recent' ? 'active' : ''} onClick={() => setActiveFeed('recent')}>Mas recientes</button>
+              <button type="button" className={activeFeed === 'popular' ? 'active' : ''} onClick={() => setActiveFeed('popular')}>Populares</button>
+              <button type="button" className={activeFeed === 'downloads' ? 'active' : ''} onClick={() => setActiveFeed('downloads')}>Mas descargados</button>
+            </div>
+
+            <div className="gallery-filter-controls">
+              <div className="gallery-view-toggle">
+                <button type="button" className={viewMode === 'grid' ? 'active' : ''} onClick={() => setViewMode('grid')} aria-label="Vista grid">
+                  <i className="bi bi-grid-3x3-gap-fill"></i>
+                </button>
+                <button type="button" className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')} aria-label="Vista lista">
+                  <i className="bi bi-list-ul"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {search && (
+            <div className="gallery-search-note">
+              <i className="bi bi-search"></i>
+              <span>Buscando: "{search}"</span>
+            </div>
+          )}
+
+          {featuredAuthors.length > 0 && (
+            <section className="featured-authors">
+              <button type="button" className="featured-authors-title">
+                Autores destacados <i className="bi bi-chevron-right"></i>
+              </button>
+              <div className="featured-authors-row">
+                {featuredAuthors.map(author => (
+                  <button
+                    key={author.id}
+                    type="button"
+                    className="featured-author-card"
+                    onClick={() => handleOpenAuthor(author.id)}
+                  >
+                    <span className="featured-author-avatar">
+                      {author.preview ? <img src={author.preview} alt={author.name} /> : author.name.slice(0, 2)}
+                    </span>
+                    <span>
+                      <strong>{author.name}</strong>
+                      <small>{author.handle}</small>
+                      <em>{formatCompact(author.followers || author.likes || author.count)} seguidores</em>
+                    </span>
+                    <i className="bi bi-patch-check-fill"></i>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className={`gallery-grid ${viewMode === 'list' ? 'list' : ''}`}>
+            {sortedWallpapers.map(wallpaper => (
+              <WallpaperCard
+                key={wallpaper._id || wallpaper.id}
                 wallpaper={wallpaper}
                 onOpenDetails={handleOpenDetails}
+                onOpenAuthor={handleOpenAuthor}
                 onRepair={handleRepair}
                 onDelete={handleDelete}
                 onSubscribe={handleSubscribe}
               />
             ))}
           </div>
+
           {hasMore && (
             <div ref={observerTarget} className="gallery-loader">
-              {loading && <p>Cargando más wallpapers...</p>}
+              {loading ? (
+                <>
+                  <i className="bi bi-arrow-repeat spin-icon"></i>
+                  <span>Cargando mas wallpapers...</span>
+                </>
+              ) : (
+                <span>Desplazate para cargar mas</span>
+              )}
             </div>
           )}
-        </>
-      )}
 
-      {selectedWallpaper && (
-        <WallpaperDetails
-          wallpaper={selectedWallpaper}
-          onClose={() => setSelectedWallpaper(null)}
-          onRepair={handleRepair}
-          onDelete={handleDelete}
-          onSubscribe={handleSubscribe}
-          isDownloaded={false}
-        />
+        </>
       )}
 
       {selectedAuthorId && (
         <AuthorProfile
           authorId={selectedAuthorId}
+          allWallpapers={wallpapers}
+          subscriptions={subscriptions}
           onClose={() => setSelectedAuthorId(null)}
           onSubscribe={handleSubscribe}
+          onOpenWallpaper={handleOpenDetails}
         />
       )}
     </div>

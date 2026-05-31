@@ -309,6 +309,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
+    autoHideMenuBar: true,
     show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -332,6 +333,7 @@ const createWindow = () => {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     log(`Renderer failed load ${errorCode}: ${errorDescription}`);
   });
+  mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     log(`Renderer process gone: ${JSON.stringify(details)}`);
   });
@@ -405,6 +407,37 @@ ipcMain.handle('download-wallpaper-file', async (_event, options = {}) => {
     success: false,
     error: lastError?.message || 'No se pudo descargar el wallpaper.'
   };
+});
+
+ipcMain.handle('delete-wallpaper-file', async (_event, options = {}) => {
+  try {
+    const targetPath = resolveLocalFilePath(options.localPath || options.path || options.downloadPath);
+    if (!targetPath) {
+      return { success: false, error: 'No se encontro una ruta local para eliminar.' };
+    }
+
+    const downloadsDir = path.resolve(app.getPath('downloads'));
+    const resolvedTarget = path.resolve(targetPath);
+    if (!resolvedTarget.toLowerCase().startsWith(downloadsDir.toLowerCase() + path.sep)) {
+      return { success: false, error: 'Solo puedo eliminar archivos descargados en tu carpeta de Descargas.' };
+    }
+
+    if (!fs.existsSync(resolvedTarget)) {
+      return { success: true, data: { deleted: false, path: resolvedTarget } };
+    }
+
+    const stats = fs.statSync(resolvedTarget);
+    if (!stats.isFile()) {
+      return { success: false, error: 'La ruta no apunta a un archivo descargado.' };
+    }
+
+    fs.unlinkSync(resolvedTarget);
+    log(`Wallpaper file deleted from ${resolvedTarget}`);
+    return { success: true, data: { deleted: true, path: resolvedTarget } };
+  } catch (error) {
+    log('Error deleting wallpaper file:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('set-wallpaper', async (event, wallpaperPath) => {
@@ -654,8 +687,7 @@ const createMenu = () => {
     }
   ];
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  Menu.setApplicationMenu(null);
 };
 
 // Handle any uncaught exceptions

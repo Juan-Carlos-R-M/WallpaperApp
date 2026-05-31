@@ -29,7 +29,7 @@
   padding: 8px 14px;
   border: 0;
   border-radius: 6px;
-  color: #fff;
+  color: var(--color-text);
   background: linear-gradient(135deg, var(--primary-color) 0%, #0056b3 100%);
   cursor: pointer;
   font-weight: 700;
@@ -44,9 +44,9 @@
 
 .settings-card {
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.08);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgb(var(--color-white-rgb) / 0.025);
 }
 
 .settings-card h3 {
@@ -85,10 +85,10 @@
   overflow: auto;
   margin: 0;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgb(var(--color-white-rgb) / 0.08);
   border-radius: 8px;
   color: #d7e6ff;
-  background: rgba(0, 0, 0, 0.38);
+  background: rgb(var(--color-bg-rgb) / 0.38);
   font-size: 11px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -99,7 +99,7 @@
   padding: 12px;
   border: 1px solid rgba(220, 53, 69, 0.3);
   border-radius: 8px;
-  color: #ff6b6b;
+  color: var(--color-danger-soft);
   background: rgba(220, 53, 69, 0.1);
 }
 
@@ -113,7 +113,7 @@
 .settings-toggle input {
   width: 20px;
   height: 20px;
-  accent-color: #e50914;
+  accent-color: var(--color-accent);
 }
 
 .settings-toggle span {

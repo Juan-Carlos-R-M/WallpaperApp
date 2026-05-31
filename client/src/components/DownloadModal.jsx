@@ -1,14 +1,14 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { toPlayableUrl } from '../utils/mediaUrl';
+import { getPreviewUrl, getVideoPlaybackUrl } from '../utils/wallpaperMeta';
 import '../styles/download-modal.css';
 
-export default function DownloadModal({ 
-  wallpaper, 
-  message = 'Descargado', 
+export default function DownloadModal({
+  wallpaper,
+  message = 'Descargado',
   onClose,
   onRepair,
-  onDelete 
+  onDelete
 }) {
   useEffect(() => {
     if (!wallpaper) return undefined;
@@ -23,10 +23,8 @@ export default function DownloadModal({
 
   if (!wallpaper) return null;
 
-  const videoUrl = String(wallpaper.mediaType || '').toLowerCase() === 'video'
-    ? toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl)
-    : '';
-  const previewUrl = toPlayableUrl(wallpaper.previewUrl || wallpaper.preview?.url || wallpaper.image?.url || wallpaper.mediaUrl);
+  const videoUrl = getVideoPlaybackUrl(wallpaper);
+  const previewUrl = getPreviewUrl(wallpaper);
 
   const handleRepair = () => {
     onRepair?.(wallpaper);
@@ -34,7 +32,7 @@ export default function DownloadModal({
   };
 
   const handleDelete = () => {
-    if (confirm('¿Estás seguro de que deseas eliminar este wallpaper?')) {
+    if (confirm('Estas seguro de que deseas eliminar este wallpaper?')) {
       onDelete?.(wallpaper);
       onClose?.();
     }
@@ -43,7 +41,7 @@ export default function DownloadModal({
   return createPortal(
     <div className="download-modal-overlay" role="dialog" aria-modal="true">
       <div className="download-modal">
-        <button className="modal-close" onClick={onClose} aria-label="Cerrar">✕</button>
+        <button className="modal-close" onClick={onClose} aria-label="Cerrar">x</button>
         <div className="modal-content">
           <div className="modal-preview">
             {videoUrl ? (

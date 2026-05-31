@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSteamPath: (path) => ipcRenderer.invoke('set-steam-path', path),
   setWallpaper: (wallpaperPath) => ipcRenderer.invoke('set-wallpaper', wallpaperPath),
   downloadWallpaperFile: (options) => ipcRenderer.invoke('download-wallpaper-file', options),
+  deleteWallpaperFile: (options) => ipcRenderer.invoke('delete-wallpaper-file', options),
   getSteamPath: () => ipcRenderer.invoke('get-steam-path'),
   searchSteamWallpapers: (query) => ipcRenderer.invoke('search-steam-wallpapers', query),
   searchWorkshopWallpapers: (options) => ipcRenderer.invoke('search-workshop-wallpapers', options),
