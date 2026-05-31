@@ -130,6 +130,31 @@ class WorkshopService {
     };
   }
 
+  async getWorkshopAuthorName(publishedFileId) {
+    if (!publishedFileId) return '';
+
+    try {
+      const url = `https://steamcommunity.com/sharedfiles/filedetails/?id=${encodeURIComponent(publishedFileId)}`;
+      const html = await this.getText(url);
+      const authorRegexes = [
+        /<div[^>]*class=["']workshopItemOwnerName["'][^>]*>.*?<a[^>]*>([^<]+)<\/a>/is,
+        /<div[^>]*class=["']friendBlockContent["'][^>]*>.*?<a[^>]*>([^<]+)<\/a>/is,
+        /<a[^>]*href=["']https:\/\/steamcommunity\.com\/profiles\/[^"']+["'][^>]*>([^<]+)<\/a>/i
+      ];
+
+      for (const regex of authorRegexes) {
+        const match = regex.exec(html);
+        if (match && match[1]) {
+          return this.decodeHtml(match[1].trim());
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching Workshop author for ${publishedFileId}:`, error);
+    }
+
+    return '';
+  }
+
   apiSort(sort) {
     const sortMap = {
       trend: 'trend',

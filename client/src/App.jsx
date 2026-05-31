@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Home from './components/Home';
 import Gallery from './components/Gallery';
 import Header from './components/Header';
 import SteamIntegration from './components/SteamIntegration';
@@ -22,7 +23,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('home');
 
-  const showGallery = activeTab === 'home' || activeTab === 'gallery';
+  const showGallery = activeTab === 'gallery';
   const showUsers = activeTab === 'users' || activeTab === 'authors';
 
   return (
@@ -40,7 +41,7 @@ function App() {
             <button
               key={item.id}
               type="button"
-              className={`sidebar-link ${activeTab === item.id || (item.id === 'home' && activeTab === 'gallery') ? 'active' : ''}`}
+              className={`sidebar-link ${activeTab === item.id ? 'active' : ''}`}
               onClick={() => setActiveTab(item.id)}
               title={item.label}
             >
@@ -75,6 +76,13 @@ function App() {
         showTitle={false}
       />
       <div className="container">
+        {activeTab === 'home' && (
+          <Home
+            search={searchQuery}
+            onOpenSteam={() => setActiveTab('steam')}
+          />
+        )}
+
         {showGallery && (
           <Gallery
             category={selectedCategory}

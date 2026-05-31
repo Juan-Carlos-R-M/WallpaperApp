@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import WallpaperCard from './WallpaperCard';
 import WallpaperDetails from './WallpaperDetails';
 import AuthorProfile from './AuthorProfile';
@@ -25,10 +25,77 @@ const HOME_CATEGORIES = [
 export default function Home({ search = '', onOpenSteam }) {
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
   const [selectedAuthorId, setSelectedAuthorId] = useState(null);
+  const [workshopWallpapers, setWorkshopWallpapers] = useState([]);
+  const [workshopLoading, setWorkshopLoading] = useState(false);
+  const [workshopLoaded, setWorkshopLoaded] = useState(false);
+  const [workshopError, setWorkshopError] = useState('');
 
-  const wallpapers = useMemo(() => (
-    getLocalWallpapers({ page: 1, limit: 36, search }).data.map(enrichWallpaperMetadata)
-  ), [search]);
+  const workshopAvailable = typeof window !== 'undefined'
+    && window.electronAPI
+    && typeof window.electronAPI.searchWorkshopWallpapers === 'function';
+
+  useEffect(() => {
+    if (!workshopAvailable) {
+      setWorkshopWallpapers([]);
+      setWorkshopLoading(false);
+      setWorkshopError('');
+      return undefined;
+    }
+
+    let isActive = true;
+
+    const fetchWorkshopWallpapers = async () => {
+      setWorkshopLoaded(false);
+      setWorkshopLoading(true);
+      setWorkshopError('');
+
+      try {
+        const result = await window.electronAPI.searchWorkshopWallpapers({
+          query: search || '',
+          page: 1,
+          limit: 36,
+          sort: 'trend',
+          time: 'all',
+          requiredTags: []
+        });
+
+        if (!isActive) return;
+
+        if (!result?.success) {
+          throw new Error(result?.error || 'No se pudo cargar Workshop.');
+        }
+
+        const items = Array.isArray(result.data?.data) ? result.data.data : [];
+        setWorkshopWallpapers(items.map(item => ({
+          ...item,
+          fromSteam: true,
+          category: item.category || 'workshop'
+        })));
+      } catch (error) {
+        if (!isActive) return;
+        setWorkshopWallpapers([]);
+        setWorkshopError(error?.message || 'Error al cargar Workshop.');
+      } finally {
+        if (!isActive) return;
+        setWorkshopLoading(false);
+        setWorkshopLoaded(true);
+      }
+    };
+
+    fetchWorkshopWallpapers();
+    return () => {
+      isActive = false;
+    };
+  }, [search, workshopAvailable]);
+
+  const showWorkshopResults = workshopAvailable && workshopLoaded && !workshopError;
+  const wallpapers = useMemo(() => {
+    if (showWorkshopResults) {
+      return workshopWallpapers.map(enrichWallpaperMetadata);
+    }
+
+    return getLocalWallpapers({ page: 1, limit: 36, search }).data.map(enrichWallpaperMetadata);
+  }, [search, workshopAvailable, workshopLoaded, workshopWallpapers, workshopError]);
 
   const popularWallpapers = useMemo(() => (
     [...wallpapers]

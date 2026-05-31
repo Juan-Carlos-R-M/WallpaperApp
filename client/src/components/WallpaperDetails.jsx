@@ -45,6 +45,7 @@ export default function WallpaperDetails({
   const [duration, setDuration] = useState(0);
   const [favorite, setFavorite] = useState(isFavorite);
   const [subscribed, setSubscribed] = useState(isSubscribed);
+  const [resolvedAuthor, setResolvedAuthor] = useState('');
 
   const displayWallpaper = enrichWallpaperMetadata(wallpaper || {});
   const authorInfo = getAuthorInfo(displayWallpaper) || displayWallpaper.authorInfo;
@@ -78,6 +79,39 @@ export default function WallpaperDetails({
   const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
   const authorName = displayWallpaper.author || authorInfo?.name || 'Autor';
   const authorId = displayWallpaper.authorId || authorInfo?.id || authorName;
+  const displayAuthor = resolvedAuthor || authorName;
+
+  useEffect(() => {
+    setResolvedAuthor('');
+
+    const shouldFetchAuthor = Boolean(
+      displayWallpaper.publishedFileId
+      && window?.electronAPI
+      && typeof window.electronAPI.getWorkshopAuthorName === 'function'
+      && (/^\d+$/.test(authorName) || displayWallpaper.fromSteam)
+    );
+
+    if (!shouldFetchAuthor) return undefined;
+
+    let active = true;
+
+    const fetchAuthorName = async () => {
+      try {
+        const result = await window.electronAPI.getWorkshopAuthorName(displayWallpaper.publishedFileId);
+        if (!active || !result?.success) return;
+        const resolved = String(result.data || '').trim();
+        if (resolved) setResolvedAuthor(resolved);
+      } catch (error) {
+        console.error('Error resolving Workshop author name:', error);
+      }
+    };
+
+    fetchAuthorName();
+
+    return () => {
+      active = false;
+    };
+  }, [displayWallpaper.publishedFileId, displayWallpaper.fromSteam, authorName]);
 
   const details = [
     ['Tipo', displayWallpaper.mediaType || tags[0] || 'Imagen'],
@@ -334,9 +368,9 @@ export default function WallpaperDetails({
             </div>
 
             <div className="detail-author">
-              <div>{String(authorName || '?').slice(0, 2).toUpperCase()}</div>
+              <div>{String(displayAuthor || '?').slice(0, 2).toUpperCase()}</div>
               <p>
-                <strong><i className="bi bi-person-badge"></i> {authorName}</strong>
+                <strong><i className="bi bi-person-badge"></i> {displayAuthor}</strong>
                 {authorInfo?.handle && <small>{authorInfo.handle}</small>}
               </p>
               {onOpenAuthor && (

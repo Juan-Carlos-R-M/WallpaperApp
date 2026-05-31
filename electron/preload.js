@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadWorkshopWallpaper: (options) => ipcRenderer.invoke('download-workshop-wallpaper', options),
   deleteWorkshopWallpaper: (options) => ipcRenderer.invoke('delete-workshop-wallpaper', options),
   getWorkshopDownloaderStatus: () => ipcRenderer.invoke('get-workshop-downloader-status'),
+  getWorkshopAuthorName: (publishedFileId) => ipcRenderer.invoke('get-workshop-author-name', publishedFileId),
   getAppLogInfo: () => ipcRenderer.invoke('get-app-log-info'),
   readAppLog: () => ipcRenderer.invoke('read-app-log'),
   openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),

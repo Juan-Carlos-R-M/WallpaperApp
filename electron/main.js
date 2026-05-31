@@ -549,6 +549,16 @@ ipcMain.handle('get-workshop-downloader-status', async () => {
   }
 });
 
+ipcMain.handle('get-workshop-author-name', async (_event, publishedFileId) => {
+  try {
+    const authorName = await workshopService.getWorkshopAuthorName(String(publishedFileId));
+    return { success: true, data: authorName };
+  } catch (error) {
+    console.error('Error getting Workshop author name:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-app-log-info', async () => {
   try {
     const logPath = getLogPath();
