@@ -3,6 +3,7 @@ import WallpaperCard from './WallpaperCard';
 import WallpaperDetails from './WallpaperDetails';
 import AuthorProfile from './AuthorProfile';
 import { getLocalWallpapers } from '../data/sampleWallpapers';
+import { downloadWallpaperAsset } from '../utils/downloadWallpaper';
 import {
   enrichWallpaperMetadata,
   formatCompact,
@@ -29,6 +30,7 @@ export default function Home({ search = '', onOpenSteam }) {
   const [workshopLoading, setWorkshopLoading] = useState(false);
   const [workshopLoaded, setWorkshopLoaded] = useState(false);
   const [workshopError, setWorkshopError] = useState('');
+  const [downloadingId, setDownloadingId] = useState('');
 
   const workshopAvailable = typeof window !== 'undefined'
     && window.electronAPI
@@ -147,6 +149,53 @@ export default function Home({ search = '', onOpenSteam }) {
     setSelectedWallpaper(enrichWallpaperMetadata(wallpaper));
   };
 
+  const handleDownloadWallpaper = async (wallpaper) => {
+    const wallpaperId = getWallpaperId(wallpaper);
+    const isWorkshopWallpaper = /^\d+$/.test(String(wallpaperId || ''));
+
+    setDownloadingId(wallpaperId);
+
+    try {
+      if (isWorkshopWallpaper && window.electronAPI?.downloadWorkshopWallpaper) {
+        const result = await window.electronAPI.downloadWorkshopWallpaper({
+          publishedFileId: wallpaperId
+        });
+
+        if (!result?.success) {
+          throw new Error(result?.error || 'No se pudo descargar desde Workshop.');
+        }
+
+        const downloadedWallpaper = enrichWallpaperMetadata({
+          ...wallpaper,
+          ...(result.data?.wallpaper || {}),
+          fromSteam: true,
+          installed: true,
+          downloaded: true,
+          localPath: result.data?.wallpaper?.localPath || result.data?.path,
+          path: result.data?.path
+        });
+
+        setWorkshopWallpapers(current => current.map(item => (
+          getWallpaperId(item) === wallpaperId ? downloadedWallpaper : item
+        )));
+        setSelectedWallpaper(current => (
+          current && getWallpaperId(current) === wallpaperId ? downloadedWallpaper : current
+        ));
+
+        return {
+          ...result.data,
+          wallpaper: downloadedWallpaper,
+          path: result.data?.path,
+          message: 'Instalado en Wallpaper Engine'
+        };
+      }
+
+      return downloadWallpaperAsset(wallpaper);
+    } finally {
+      setDownloadingId('');
+    }
+  };
+
   const renderWallpaperSection = (title, items) => (
     <section className="home-section">
       <div className="home-section-title">
@@ -160,6 +209,8 @@ export default function Home({ search = '', onOpenSteam }) {
             wallpaper={wallpaper}
             onOpenDetails={handleOpenDetails}
             onOpenAuthor={setSelectedAuthorId}
+            onDownload={handleDownloadWallpaper}
+            repairing={downloadingId === getWallpaperId(wallpaper)}
           />
         ))}
       </div>
@@ -239,12 +290,16 @@ export default function Home({ search = '', onOpenSteam }) {
           wallpaper={selectedWallpaper}
           onClose={() => setSelectedWallpaper(null)}
           onBack={() => setSelectedWallpaper(null)}
+          onDownload={handleDownloadWallpaper}
           onOpenAuthor={setSelectedAuthorId}
           relatedWallpapers={sortSimilarWallpapers(selectedWallpaper, wallpapers).slice(0, 12)}
           authorWallpapers={wallpapers.filter(item => item.authorId === selectedWallpaper.authorId).slice(0, 12)}
           onOpenRelated={handleOpenDetails}
-          sourceName="Galeria local"
-          sourceIcon="hdd-stack"
+          isDownloaded={Boolean(selectedWallpaper.localPath || selectedWallpaper.installed || selectedWallpaper.downloaded)}
+          sourceName={selectedWallpaper.fromSteam || /^\d+$/.test(String(selectedWallpaper.publishedFileId || '')) ? 'Workshop' : 'Galeria local'}
+          sourceIcon={selectedWallpaper.fromSteam || /^\d+$/.test(String(selectedWallpaper.publishedFileId || '')) ? 'steam' : 'hdd-stack'}
+          repairing={downloadingId === getWallpaperId(selectedWallpaper)}
+          downloaderReady={true}
         />
       )}
 

@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { id: 'home', label: 'Inicio', icon: 'house-door' },
   { id: 'gallery', label: 'Galeria', icon: 'grid-3x3-gap' },
   { id: 'steam', label: 'Steam Wallpaper Engine', icon: 'steam' },
-  { id: 'favorites', label: 'Guardados', icon: 'bookmark' },
+  { id: 'favorites', label: 'Me gusta', icon: 'heart' },
   { id: 'authors', label: 'Autores', icon: 'people' },
   { id: 'users', label: 'Usuarios', icon: 'person-lines-fill' },
   { id: 'settings', label: 'Configuracion', icon: 'gear' }

@@ -118,6 +118,13 @@
   font-weight: 900;
 }
 
+.author-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 .author-avatar-wrap > i {
   position: absolute;
   right: 2px;
@@ -280,6 +287,26 @@
 
 .author-wallpapers-section {
   padding-top: 18px;
+}
+
+.author-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
+  border-radius: 8px;
+  color: rgb(var(--color-white-rgb) / 0.82);
+  background: rgb(var(--color-white-rgb) / 0.08);
+  font-size: 0.88rem;
+}
+
+.author-status.error {
+  color: #fecaca;
+  border-color: rgb(239 68 68 / 0.32);
+  background: rgb(239 68 68 / 0.14);
 }
 
 .author-filter-row {

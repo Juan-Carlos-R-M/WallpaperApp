@@ -37,7 +37,6 @@ export const getAuthorKey = (wallpaper = {}) => String(
 
 export const isDownloadedWallpaper = (wallpaper = {}) => Boolean(
   wallpaper.localPath
-  || wallpaper.fromSteam
   || wallpaper.installed
   || wallpaper.downloaded
 );

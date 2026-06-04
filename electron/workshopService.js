@@ -13,6 +13,7 @@ class WorkshopService {
     this.steamReader = steamReader;
     this.logger = logger;
     this.downloadRoot = path.join(userDataPath, 'WorkshopDownloads');
+    this.authorProfileCache = new Map();
   }
 
   async searchWallpapers({
@@ -95,13 +96,124 @@ class WorkshopService {
     try {
       const response = await this.postForm(url, params);
       const details = response?.response?.publishedfiledetails || [];
-      return details
+      const items = details
         .filter(item => Number(item.result || 1) === 1)
         .map(item => this.normalizeWorkshopItem(item));
+
+      return this.attachAuthorProfiles(items);
     } catch (error) {
       this.logger(`GetPublishedFileDetails fallo: ${error.message}`);
       return [];
     }
+  }
+
+  async getWorkshopAuthorProfile(authorId, { limit = 24 } = {}) {
+    const profile = await this.resolveWorkshopAuthorProfile(authorId);
+    const wallpapers = await this.getWorkshopItemsByAuthor(authorId, { limit });
+
+    return {
+      profile: profile || {
+        id: String(authorId || ''),
+        name: String(authorId || 'Autor'),
+        handle: authorId ? `@${String(authorId).slice(0, 12)}` : '',
+        url: authorId ? `https://steamcommunity.com/profiles/${encodeURIComponent(authorId)}` : ''
+      },
+      wallpapers
+    };
+  }
+
+  async getWorkshopItemsByAuthor(authorId, { limit = 24 } = {}) {
+    const ids = await this.fetchWorkshopIdsFromAuthor(authorId, { limit });
+    return this.getWorkshopItemsByIds(ids);
+  }
+
+  async fetchWorkshopIdsFromAuthor(authorId, { limit = 24 } = {}) {
+    const id = String(authorId || '').trim();
+    if (!/^\d+$/.test(id)) {
+      return [];
+    }
+
+    const params = new URLSearchParams({
+      appid: WALLPAPER_ENGINE_APP_ID,
+      browsefilter: 'myfiles',
+      sort: 'score',
+      view: 'imagewall'
+    });
+    const html = await this.getText(`https://steamcommunity.com/profiles/${encodeURIComponent(id)}/myworkshopfiles/?${params}`);
+    const ids = [];
+    const seen = new Set();
+    const regex = /href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"/g;
+    let match;
+
+    while ((match = regex.exec(html)) && ids.length < limit) {
+      const publishedFileId = match[1];
+      if (seen.has(publishedFileId)) continue;
+      seen.add(publishedFileId);
+      ids.push(publishedFileId);
+    }
+
+    return ids;
+  }
+
+  async attachAuthorProfiles(items = []) {
+    const authorIds = [...new Set(items.map(item => item.authorId || item.creator).filter(Boolean))];
+    if (!authorIds.length) {
+      return items;
+    }
+
+    const profiles = await Promise.all(authorIds.map(authorId => this.resolveWorkshopAuthorProfile(authorId)));
+    const profilesById = new Map(
+      profiles.filter(Boolean).map(profile => [String(profile.id), profile])
+    );
+
+    return items.map(item => {
+      const profile = profilesById.get(String(item.authorId || item.creator));
+      if (!profile) return item;
+
+      return {
+        ...item,
+        author: profile.name || item.author,
+        authorInfo: profile
+      };
+    });
+  }
+
+  async resolveWorkshopAuthorProfile(authorId) {
+    const id = String(authorId || '').trim();
+    if (!/^\d+$/.test(id)) {
+      return null;
+    }
+
+    if (!this.authorProfileCache.has(id)) {
+      this.authorProfileCache.set(id, this.fetchWorkshopAuthorProfile(id).catch(error => {
+        this.logger(`No pude resolver autor Steam ${id}: ${error.message}`);
+        return null;
+      }));
+    }
+
+    return this.authorProfileCache.get(id);
+  }
+
+  async fetchWorkshopAuthorProfile(authorId) {
+    const url = `https://steamcommunity.com/profiles/${encodeURIComponent(authorId)}/?xml=1`;
+    const xml = await this.getText(url);
+    const name = this.decodeHtml(this.getXmlTag(xml, 'steamID')) || `Steam ${authorId.slice(-8)}`;
+    const customUrl = this.decodeHtml(this.getXmlTag(xml, 'customURL'));
+    const profileUrl = this.decodeHtml(this.getXmlTag(xml, 'profileURL')) || `https://steamcommunity.com/profiles/${authorId}`;
+    const avatar = this.decodeHtml(this.getXmlTag(xml, 'avatarFull') || this.getXmlTag(xml, 'avatarMedium'));
+    const joined = this.decodeHtml(this.getXmlTag(xml, 'memberSince'));
+
+    return {
+      id: authorId,
+      name,
+      handle: customUrl ? `@${customUrl}` : `@${authorId.slice(0, 12)}`,
+      url: profileUrl,
+      avatar,
+      joined,
+      description: 'Creador de wallpapers en Steam Workshop.',
+      bio: '',
+      followers: 0
+    };
   }
 
   async getWorkshopAuthorName(publishedFileId) {
@@ -301,8 +413,14 @@ class WorkshopService {
       title: item.title || 'Workshop wallpaper',
       description: this.stripHtml(item.file_description || item.description || ''),
       authorId: item.creator ? String(item.creator) : '',
-      author: item.creator || '',
+      author: item.creator ? `Steam ${String(item.creator).slice(-8)}` : '',
       creator: item.creator ? String(item.creator) : '',
+      authorInfo: item.creator ? {
+        id: String(item.creator),
+        name: `Steam ${String(item.creator).slice(-8)}`,
+        handle: `@${String(item.creator).slice(0, 12)}`,
+        url: `https://steamcommunity.com/profiles/${item.creator}`
+      } : null,
       previewUrl: preview,
       url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${item.publishedfileid}`,
       subscriptions: Number(item.subscriptions || 0),
@@ -339,6 +457,11 @@ class WorkshopService {
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  getXmlTag(xml, tagName) {
+    const match = new RegExp(`<${tagName}>\\s*(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?\\s*<\\/${tagName}>`, 'i').exec(String(xml || ''));
+    return match ? match[1].trim() : '';
   }
 
   getJson(url) {

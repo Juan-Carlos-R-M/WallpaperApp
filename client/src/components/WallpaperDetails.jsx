@@ -46,9 +46,10 @@ export default function WallpaperDetails({
   const [favorite, setFavorite] = useState(isFavorite);
   const [subscribed, setSubscribed] = useState(isSubscribed);
   const [resolvedAuthor, setResolvedAuthor] = useState('');
+  const [workshopAuthorProfile, setWorkshopAuthorProfile] = useState(null);
 
   const displayWallpaper = enrichWallpaperMetadata(wallpaper || {});
-  const authorInfo = getAuthorInfo(displayWallpaper) || displayWallpaper.authorInfo;
+  const authorInfo = workshopAuthorProfile?.profile || getAuthorInfo(displayWallpaper) || displayWallpaper.authorInfo;
 
   useEffect(() => {
     setFavorite(isFavorite);
@@ -57,6 +58,38 @@ export default function WallpaperDetails({
   useEffect(() => {
     setSubscribed(isSubscribed);
   }, [isSubscribed]);
+
+  useEffect(() => {
+    setWorkshopAuthorProfile(null);
+
+    const authorId = displayWallpaper.authorId || displayWallpaper.creator;
+    const shouldFetchAuthor = Boolean(
+      authorId
+      && /^\d+$/.test(String(authorId))
+      && window?.electronAPI
+      && typeof window.electronAPI.getWorkshopAuthorProfile === 'function'
+    );
+
+    if (!shouldFetchAuthor) return undefined;
+
+    let active = true;
+
+    const fetchAuthorProfile = async () => {
+      try {
+        const result = await window.electronAPI.getWorkshopAuthorProfile(authorId, { limit: 12 });
+        if (!active || !result?.success) return;
+        setWorkshopAuthorProfile(result.data || null);
+      } catch (error) {
+        console.error('Error loading Workshop author profile:', error);
+      }
+    };
+
+    fetchAuthorProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [displayWallpaper.authorId, displayWallpaper.creator, displayWallpaper.publishedFileId]);
 
   useEffect(() => {
     if (!wallpaper) return undefined;
@@ -70,8 +103,6 @@ export default function WallpaperDetails({
     };
   }, [wallpaper]);
 
-  if (!wallpaper) return null;
-
   const videoUrl = getVideoPlaybackUrl(displayWallpaper);
   const previewUrl = getPreviewUrl(displayWallpaper);
   const isVideo = Boolean(videoUrl);
@@ -80,6 +111,9 @@ export default function WallpaperDetails({
   const authorName = displayWallpaper.author || authorInfo?.name || 'Autor';
   const authorId = displayWallpaper.authorId || authorInfo?.id || authorName;
   const displayAuthor = resolvedAuthor || authorName;
+  const displayedAuthorWallpapers = workshopAuthorProfile?.wallpapers?.length
+    ? workshopAuthorProfile.wallpapers.filter(item => item.publishedFileId !== displayWallpaper.publishedFileId)
+    : authorWallpapers;
 
   useEffect(() => {
     setResolvedAuthor('');
@@ -112,6 +146,8 @@ export default function WallpaperDetails({
       active = false;
     };
   }, [displayWallpaper.publishedFileId, displayWallpaper.fromSteam, authorName]);
+
+  if (!wallpaper) return null;
 
   const details = [
     ['Tipo', displayWallpaper.mediaType || tags[0] || 'Imagen'],
@@ -458,7 +494,7 @@ export default function WallpaperDetails({
               }</span>
             </div>
 
-            {authorWallpapers.length > 0 && (
+            {displayedAuthorWallpapers.length > 0 && (
               <section className="detail-author-wallpapers">
                 <div>
                   <h3>Mas del autor</h3>
@@ -466,7 +502,7 @@ export default function WallpaperDetails({
                     <button type="button" onClick={handleOpenAuthor}>Ver todo <i className="bi bi-chevron-right"></i></button>
                   )}
                 </div>
-                {renderHorizontalWallpapers(authorWallpapers.slice(0, 12), sideAuthorRowRef, 'compact side')}
+                {renderHorizontalWallpapers(displayedAuthorWallpapers.slice(0, 12), sideAuthorRowRef, 'compact side')}
               </section>
             )}
 

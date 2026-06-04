@@ -16,6 +16,7 @@ const WallpaperCard = memo(({
   onOpenAuthor,
   onRepair,
   onDelete,
+  onDownload,
   onSubscribe,
   repairing = false,
   deleting = false
@@ -83,17 +84,22 @@ const WallpaperCard = memo(({
 
     try {
       setIsDownloading(true);
-      const result = await downloadWallpaperAsset(displayWallpaper);
+      const result = onDownload
+        ? await onDownload(displayWallpaper)
+        : await downloadWallpaperAsset(displayWallpaper);
+      const resultWallpaper = result?.wallpaper || result?.data?.wallpaper || null;
       const downloadedWallpaper = {
         ...displayWallpaper,
+        ...resultWallpaper,
         downloaded: true,
         installed: true,
-        localPath: result.path || displayWallpaper.localPath,
-        downloadPath: result.path || displayWallpaper.downloadPath
+        localPath: result?.path || resultWallpaper?.localPath || displayWallpaper.localPath,
+        downloadPath: result?.path || resultWallpaper?.downloadPath || displayWallpaper.downloadPath
       };
-      const message = result.path
-        ? `Guardado como ${result.fileName}`
-        : `Descargado como ${result.fileName}`;
+      const message = result?.message
+        || (result?.path
+          ? `Descargado en ${result.path}`
+          : `Descargado como ${result?.fileName || displayWallpaper.title}`);
 
       setDownloadedOverride(true);
       setDownloadNotice({ wallpaper: downloadedWallpaper, message });

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getLocalWallpapers } from '../data/sampleWallpapers';
 import {
@@ -19,20 +19,88 @@ export default function AuthorProfile({
   onSubscribe,
   onOpenWallpaper
 }) {
+  const [workshopProfile, setWorkshopProfile] = useState(null);
+  const [workshopWallpapers, setWorkshopWallpapers] = useState([]);
+  const [workshopLoading, setWorkshopLoading] = useState(false);
+  const [workshopError, setWorkshopError] = useState('');
   const fallbackWallpapers = useMemo(() => (
     getLocalWallpapers({ limit: 100 }).data.map(enrichWallpaperMetadata)
   ), []);
 
   const authorInfo = getAuthorInfo(authorId);
+  const canLoadWorkshopAuthor = /^\d+$/.test(String(authorId || ''))
+    && typeof window !== 'undefined'
+    && window.electronAPI
+    && typeof window.electronAPI.getWorkshopAuthorProfile === 'function';
+
+  useEffect(() => {
+    if (!canLoadWorkshopAuthor) {
+      setWorkshopProfile(null);
+      setWorkshopWallpapers([]);
+      setWorkshopLoading(false);
+      setWorkshopError('');
+      return undefined;
+    }
+
+    let active = true;
+
+    const loadWorkshopAuthor = async () => {
+      setWorkshopLoading(true);
+      setWorkshopError('');
+
+      try {
+        const result = await window.electronAPI.getWorkshopAuthorProfile(authorId, { limit: 36 });
+        if (!active) return;
+
+        if (!result?.success) {
+          throw new Error(result?.error || 'No se pudo cargar el autor.');
+        }
+
+        setWorkshopProfile(result.data?.profile || null);
+        setWorkshopWallpapers((result.data?.wallpapers || []).map(item => enrichWallpaperMetadata({
+          ...item,
+          fromSteam: true
+        })));
+      } catch (error) {
+        if (!active) return;
+        setWorkshopProfile(null);
+        setWorkshopWallpapers([]);
+        setWorkshopError(error?.message || 'No se pudo cargar el autor.');
+      } finally {
+        if (active) setWorkshopLoading(false);
+      }
+    };
+
+    loadWorkshopAuthor();
+    return () => {
+      active = false;
+    };
+  }, [authorId, canLoadWorkshopAuthor]);
+
   const normalizeAlias = (value = '') => String(value || '').trim().toLowerCase();
   const authorAliases = useMemo(() => new Set([
     authorId,
     authorInfo?.id,
     authorInfo?.name,
-    authorInfo?.handle
-  ].map(normalizeAlias).filter(Boolean)), [authorId, authorInfo?.id, authorInfo?.name, authorInfo?.handle]);
+    authorInfo?.handle,
+    workshopProfile?.id,
+    workshopProfile?.name,
+    workshopProfile?.handle
+  ].map(normalizeAlias).filter(Boolean)), [
+    authorId,
+    authorInfo?.id,
+    authorInfo?.name,
+    authorInfo?.handle,
+    workshopProfile?.id,
+    workshopProfile?.name,
+    workshopProfile?.handle
+  ]);
 
   const wallpapers = useMemo(() => {
+    if (workshopWallpapers.length > 0) {
+      return workshopWallpapers;
+    }
+
     const source = [...allWallpapers, ...fallbackWallpapers].map(enrichWallpaperMetadata);
     const seen = new Set();
 
@@ -63,10 +131,10 @@ export default function AuthorProfile({
       fallbackSeen.add(id);
       return true;
     }).slice(0, 12);
-  }, [allWallpapers, fallbackWallpapers, authorAliases]);
+  }, [allWallpapers, fallbackWallpapers, authorAliases, workshopWallpapers]);
 
   const firstWallpaper = wallpapers[0];
-  const profile = authorInfo || firstWallpaper?.authorInfo || {
+  const profile = workshopProfile || authorInfo || firstWallpaper?.authorInfo || {
     id: authorId,
     name: firstWallpaper?.author || authorId || 'Autor',
     handle: authorId ? `@${String(authorId).slice(0, 12)}` : '',
@@ -81,6 +149,7 @@ export default function AuthorProfile({
   const profileId = profile.id || authorId;
   const isSubscribed = Boolean(subscriptions[profileId] || subscriptions[authorId]);
   const coverUrl = firstWallpaper ? getPreviewUrl(firstWallpaper) : '';
+  const avatarUrl = profile.avatar || profile.avatarUrl || '';
 
   const handleSubscribe = () => {
     onSubscribe?.(profileId, !isSubscribed);
@@ -112,7 +181,7 @@ export default function AuthorProfile({
           <div className="author-hero-content">
             <div className="author-avatar-wrap">
               <div className="author-avatar">
-                {String(profile.name || '?').slice(0, 2).toUpperCase()}
+                {avatarUrl ? <img src={avatarUrl} alt={profile.name} /> : String(profile.name || '?').slice(0, 2).toUpperCase()}
               </div>
               <i className="bi bi-patch-check-fill"></i>
             </div>
@@ -153,6 +222,18 @@ export default function AuthorProfile({
           </div>
 
           <div className="author-wallpapers-section">
+            {workshopLoading && (
+              <div className="author-status">
+                <i className="bi bi-arrow-repeat spin-icon"></i>
+                Cargando wallpapers reales del Workshop...
+              </div>
+            )}
+            {workshopError && (
+              <div className="author-status error">
+                <i className="bi bi-exclamation-triangle"></i>
+                {workshopError}
+              </div>
+            )}
             <div className="author-filter-row">
               <div className="author-sort-tabs">
                 <button type="button" className="active">Mas recientes</button>
