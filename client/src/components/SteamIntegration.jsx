@@ -1015,7 +1015,7 @@ if (detailWallpaper) {
             <div className="steam-error">
               <i className="bi bi-tools"></i>
               <div>
-                <p>No encontré una herramienta de descarga compatible.</p>
+                <p>No encontré SteamCMD para descargar wallpapers.</p>
                 <small>Abre Configuración para revisar el diagnóstico.</small>
               </div>
             </div>

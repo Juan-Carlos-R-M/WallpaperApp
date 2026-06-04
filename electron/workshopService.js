@@ -23,53 +23,21 @@ class WorkshopService {
     time = 'all',
     requiredTags = []
   } = {}) {
-    const days = this.timeToDays(time);
-    const params = new URLSearchParams({
-      appid: WALLPAPER_ENGINE_APP_ID,
-      page: String(page),
-      numperpage: String(limit),
-      browsefilter: this.apiSort(sort),
-      return_metadata: '1',
-      return_previews: '1',
-      return_tags: '1',
-      return_vote_data: '1',
-      match_all_tags: '0'
-    });
-
-    if (days) {
-      params.set('days', String(days));
+    const ids = await this.fetchWorkshopIdsFromSearch({ query, page, limit, sort, time, requiredTags });
+    if (!ids.length) {
+      return { total: 0, page, data: [] };
     }
 
-    if (query.trim()) {
-      params.set('search_text', query.trim());
-    }
+    const items = await this.getWorkshopItemsByIds(ids);
 
-    requiredTags.filter(Boolean).forEach(tag => {
-      params.append('requiredtags[]', tag);
-    });
-
-    const url = `https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/?${params}`;
-
-    try {
-      const payload = await this.getJson(url);
-      const response = payload.response || {};
-      const items = response.publishedfiledetails || [];
-
-      return {
-        total: Number(response.total || items.length || 0),
-        page,
-        data: items.map(item => this.normalizeWorkshopItem(item))
-      };
-    } catch (error) {
-      if (!String(error.message).includes('403')) {
-        throw error;
-      }
-
-      return this.searchWorkshopHtml({ query, page, limit, sort, time, requiredTags });
-    }
+    return {
+      total: items.length,
+      page,
+      data: items
+    };
   }
 
-  async searchWorkshopHtml({
+  async fetchWorkshopIdsFromSearch({
     query = '',
     page = 1,
     limit = 24,
@@ -95,39 +63,45 @@ class WorkshopService {
     });
 
     const html = await this.getText(`https://steamcommunity.com/workshop/browse/?${params}`);
-    const items = [];
+    const ids = [];
     const seen = new Set();
-    const regex = /href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"[^>]*>\s*<img src="([^"]+)" alt="([^"]*)"/g;
+    const regex = /href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"/g;
     let match;
 
-    while ((match = regex.exec(html)) && items.length < limit) {
+    while ((match = regex.exec(html)) && ids.length < limit) {
       const publishedFileId = match[1];
       if (seen.has(publishedFileId)) continue;
       seen.add(publishedFileId);
-
-      items.push({
-        publishedFileId,
-        title: this.decodeHtml(match[3]) || 'Workshop wallpaper',
-        description: '',
-        author: '',
-        previewUrl: this.decodeHtml(match[2]),
-        url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${publishedFileId}`,
-        subscriptions: 0,
-        favorited: 0,
-        score: 0,
-        fileSize: 0,
-        timeCreated: 0,
-        timeUpdated: 0,
-        mediaType: 'workshop',
-        tags: []
-      });
+      ids.push(publishedFileId);
     }
 
-    return {
-      total: items.length,
-      page,
-      data: items
-    };
+    return ids;
+  }
+
+  async getWorkshopItemsByIds(publishedFileIds = []) {
+    const ids = [...new Set(publishedFileIds.map(id => String(id).trim()).filter(Boolean))].slice(0, 100);
+    if (!ids.length) {
+      return [];
+    }
+
+    const params = new URLSearchParams();
+    params.append('itemcount', String(ids.length));
+    ids.forEach((id, index) => {
+      params.append(`publishedfileids[${index}]`, id);
+    });
+
+    const url = 'https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/';
+
+    try {
+      const response = await this.postForm(url, params);
+      const details = response?.response?.publishedfiledetails || [];
+      return details
+        .filter(item => Number(item.result || 1) === 1)
+        .map(item => this.normalizeWorkshopItem(item));
+    } catch (error) {
+      this.logger(`GetPublishedFileDetails fallo: ${error.message}`);
+      return [];
+    }
   }
 
   async getWorkshopAuthorName(publishedFileId) {
@@ -155,18 +129,6 @@ class WorkshopService {
     return '';
   }
 
-  apiSort(sort) {
-    const sortMap = {
-      trend: 'trend',
-      popular: 'totaluniquesubscribers',
-      recent: 'mostrecent',
-      favorites: 'totaluniquefavorites',
-      updated: 'lastupdated'
-    };
-
-    return sortMap[sort] || sortMap.trend;
-  }
-
   htmlSort(sort) {
     const sortMap = {
       trend: 'trend',
@@ -190,7 +152,7 @@ class WorkshopService {
     return dayMap[time] || null;
   }
 
-  async downloadWallpaper({ publishedFileId, username = '', password = '', downloader = 'auto' }) {
+  async downloadWallpaper({ publishedFileId, username = '', password = '' }) {
     if (!publishedFileId) {
       throw new Error('Falta el ID de Workshop.');
     }
@@ -203,38 +165,27 @@ class WorkshopService {
     fs.mkdirSync(targetRoot, { recursive: true });
     fs.mkdirSync(this.downloadRoot, { recursive: true });
 
-    const tool = this.resolveDownloader(downloader);
-    if (!tool) {
-      throw new Error(
-        'No encontre DepotDownloader ni SteamCMD. Instala DepotDownloader o SteamCMD y vuelve a intentar.'
-      );
+    const steamcmd = this.findSteamCmd();
+    if (!steamcmd) {
+      throw new Error('No encontre SteamCMD. Instala SteamCMD y vuelve a intentar.');
     }
 
-    const tempDir = path.join(this.downloadRoot, 'incoming', String(publishedFileId));
     const cacheDir = path.join(this.downloadRoot, String(publishedFileId));
     const targetDir = path.join(targetRoot, String(publishedFileId));
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.mkdirSync(tempDir, { recursive: true });
-
-    const args = tool.type === 'depot'
-      ? this.buildDepotDownloaderArgs({ publishedFileId, username, password, targetDir: tempDir })
-      : this.buildSteamCmdArgs({ publishedFileId, username, password });
+    const args = this.buildSteamCmdArgs({ publishedFileId, username, password });
     const steamCmdContentDir = path.join(this.downloadRoot, 'steamapps', 'workshop', 'content', WALLPAPER_ENGINE_APP_ID, String(publishedFileId));
 
-    if (tool.type === 'steamcmd') {
-      fs.rmSync(steamCmdContentDir, { recursive: true, force: true });
-    }
+    fs.rmSync(steamCmdContentDir, { recursive: true, force: true });
 
-    this.logger(`Starting ${tool.type} download executable=${tool.path} cwd=${tool.type === 'steamcmd' ? this.downloadRoot : tempDir} args=${this.redactArgs(args).join(' ')}`);
+    this.logger(`Starting steamcmd download executable=${steamcmd} cwd=${this.downloadRoot} args=${this.redactArgs(args).join(' ')}`);
 
-    const result = await this.runTool(tool.path, args, {
-      cwd: tool.type === 'steamcmd' ? this.downloadRoot : tempDir
+    const result = await this.runTool(steamcmd, args, {
+      cwd: this.downloadRoot
     });
 
     this.logger(`Downloader output for ${publishedFileId}:\n${result.output}`);
 
-    const rawDownloadedDir = tool.type === 'steamcmd' ? steamCmdContentDir : tempDir;
-    const projectDir = this.findProjectRoot(rawDownloadedDir);
+    const projectDir = this.findProjectRoot(steamCmdContentDir);
     this.copyProjectDirectory(projectDir, cacheDir);
     this.copyProjectToMyProjects(projectDir, targetDir);
 
@@ -275,17 +226,15 @@ class WorkshopService {
   }
 
   async getDownloaderStatus() {
-    const depot = this.findDepotDownloader();
     const steamcmd = this.findSteamCmd();
     const enginePaths = await this.steamReader.constructor.getWallpaperEnginePaths();
 
     return {
-      depotDownloader: depot,
       steamcmd,
       downloadRoot: this.downloadRoot,
       wallpaperEngineTarget: enginePaths.myProjectsPath,
       wallpaperEngineInstall: enginePaths.installPath,
-      hasDownloader: Boolean(depot || steamcmd)
+      hasDownloader: Boolean(steamcmd)
     };
   }
 
@@ -417,6 +366,43 @@ class WorkshopService {
     });
   }
 
+  postForm(url, params) {
+    return new Promise((resolve, reject) => {
+      const postData = params.toString();
+      const request = https.request(url, {
+        method: 'POST',
+        headers: {
+          ...this.requestHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      }, res => {
+        let body = '';
+
+        res.on('data', chunk => {
+          body += chunk;
+        });
+
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`Steam API respondio ${res.statusCode}`));
+            return;
+          }
+
+          try {
+            resolve(JSON.parse(body));
+          } catch (error) {
+            reject(new Error(`Respuesta invalida de Steam: ${error.message}`));
+          }
+        });
+      });
+
+      request.on('error', reject);
+      request.write(postData);
+      request.end();
+    });
+  }
+
   getText(url) {
     return new Promise((resolve, reject) => {
       https.get(url, { headers: this.requestHeaders() }, res => {
@@ -453,38 +439,6 @@ class WorkshopService {
       .replace(/&gt;/g, '>');
   }
 
-  resolveDownloader(choice) {
-    if (choice === 'depot') {
-      const depot = this.findDepotDownloader();
-      return depot ? { type: 'depot', path: depot } : null;
-    }
-
-    if (choice === 'steamcmd') {
-      const steamcmd = this.findSteamCmd();
-      return steamcmd ? { type: 'steamcmd', path: steamcmd } : null;
-    }
-
-    const depot = this.findDepotDownloader();
-    if (depot) return { type: 'depot', path: depot };
-
-    const steamcmd = this.findSteamCmd();
-    if (steamcmd) return { type: 'steamcmd', path: steamcmd };
-
-    return null;
-  }
-
-  findDepotDownloader() {
-    const candidates = [
-      process.env.DEPOTDOWNLOADER_PATH,
-      path.join(this.userDataPath, 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
-      process.resourcesPath && path.join(process.resourcesPath, 'app.asar.unpacked', 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
-      path.join(process.cwd(), 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
-      path.join(os.homedir(), 'Downloads', 'DepotDownloader', 'DepotDownloader.exe')
-    ].filter(Boolean);
-
-    return candidates.find(candidate => fs.existsSync(candidate)) || null;
-  }
-
   findSteamCmd() {
     const candidates = [
       process.env.STEAMCMD_PATH,
@@ -496,28 +450,6 @@ class WorkshopService {
     ].filter(Boolean);
 
     return candidates.find(candidate => fs.existsSync(candidate)) || null;
-  }
-
-  buildDepotDownloaderArgs({ publishedFileId, username, password, targetDir }) {
-    const args = [
-      '-app',
-      WALLPAPER_ENGINE_APP_ID,
-      '-pubfile',
-      String(publishedFileId),
-      '-dir',
-      targetDir,
-      '-validate'
-    ];
-
-    if (username.trim()) {
-      args.push('-username', username.trim());
-    }
-
-    if (password) {
-      args.push('-password', password);
-    }
-
-    return args;
   }
 
   buildSteamCmdArgs({ publishedFileId, username, password }) {
@@ -581,7 +513,7 @@ class WorkshopService {
   friendlyDownloaderError(output) {
     if (output.includes('No username given') || output.includes('Logging anonymously')) {
       return [
-        'DepotDownloader intento entrar como anonimo y Steam rechazo Wallpaper Engine.',
+        'SteamCMD intento entrar como anonimo y Steam rechazo Wallpaper Engine.',
         'Escribe usuario y contrasena de Steam en la app antes de descargar.',
         '',
         output
@@ -591,7 +523,7 @@ class WorkshopService {
     if (output.includes('Steam Guard') || output.includes('2-factor') || output.includes('two-factor')) {
       return [
         'Steam Guard requiere verificacion adicional y el modo automatico no pudo completarla.',
-        'Revisa el log para ver el codigo o mensaje exacto de DepotDownloader.',
+        'Revisa el log para ver el codigo o mensaje exacto de SteamCMD.',
         '',
         output
       ].join('\n');

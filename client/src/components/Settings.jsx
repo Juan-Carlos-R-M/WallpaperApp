@@ -70,7 +70,7 @@ const Settings = () => {
             </div>
             <div>
               <dt>Descargador</dt>
-              <dd>{downloaderStatus?.hasDownloader ? 'Listo' : 'Falta DepotDownloader o SteamCMD'}</dd>
+              <dd>{downloaderStatus?.hasDownloader ? 'SteamCMD listo' : 'Falta SteamCMD'}</dd>
             </div>
           </dl>
         </article>
