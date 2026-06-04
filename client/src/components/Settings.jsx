@@ -3,7 +3,10 @@ import '../styles/settings.css';
 
 const DOWNLOAD_CONFIRMATION_STORAGE_KEY = 'wallpaperApp.showDownloadConfirmation';
 
-const Settings = () => {
+const Settings = ({
+  showMatureContent = false,
+  onMatureContentChange = () => {}
+}) => {
   const [logInfo, setLogInfo] = useState(null);
   const [logContent, setLogContent] = useState('');
   const [downloaderStatus, setDownloaderStatus] = useState(null);
@@ -44,6 +47,10 @@ const Settings = () => {
     localStorage.setItem(DOWNLOAD_CONFIRMATION_STORAGE_KEY, String(checked));
   };
 
+  const updateMatureContent = (checked) => {
+    onMatureContentChange(checked);
+  };
+
   return (
     <section className="settings-screen">
       <div className="settings-header">
@@ -70,8 +77,18 @@ const Settings = () => {
             </div>
             <div>
               <dt>Descargador</dt>
-              <dd>{downloaderStatus?.hasDownloader ? 'SteamCMD listo' : 'Falta SteamCMD'}</dd>
+              <dd>{downloaderStatus?.hasDownloader ? `${downloaderStatus.downloaderName || 'Descargador'} listo` : 'Falta SteamCMD o DepotDownloader'}</dd>
             </div>
+            <div>
+              <dt>Ruta detectada</dt>
+              <dd>{downloaderStatus?.downloader || 'No detectada'}</dd>
+            </div>
+            {!downloaderStatus?.hasDownloader && downloaderStatus?.searchedDownloaderPaths?.length > 0 && (
+              <div>
+                <dt>Rutas revisadas</dt>
+                <dd>{downloaderStatus.searchedDownloaderPaths.join('\n')}</dd>
+              </div>
+            )}
           </dl>
         </article>
 
@@ -87,6 +104,21 @@ const Settings = () => {
               <dd>{logInfo ? `${logInfo.size} bytes` : 'Sin dato'}</dd>
             </div>
           </dl>
+        </article>
+
+        <article className="settings-card">
+          <h3>Contenido</h3>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={showMatureContent}
+              onChange={(event) => updateMatureContent(event.target.checked)}
+            />
+            <span>
+              <strong>Visualizar contenido maduro</strong>
+              <small>Si esta apagado, solo se muestran wallpapers Everyone y Questionable.</small>
+            </span>
+          </label>
         </article>
 
         <article className="settings-card">

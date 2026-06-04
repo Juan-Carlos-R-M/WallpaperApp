@@ -6,6 +6,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 const WALLPAPER_ENGINE_APP_ID = '431960';
+const MAX_REDIRECTS = 5;
 
 class WorkshopService {
   constructor({ userDataPath, steamReader, logger = () => {} }) {
@@ -14,6 +15,7 @@ class WorkshopService {
     this.logger = logger;
     this.downloadRoot = path.join(userDataPath, 'WorkshopDownloads');
     this.authorProfileCache = new Map();
+    this.apiKey = process.env.STEAM_WEB_API_KEY || process.env.STEAM_API_KEY || '';
   }
 
   async searchWallpapers({
@@ -22,18 +24,26 @@ class WorkshopService {
     limit = 24,
     sort = 'trend',
     time = 'all',
-    requiredTags = []
+    requiredTags = [],
+    matchAllTags = true
   } = {}) {
-    const ids = await this.fetchWorkshopIdsFromSearch({ query, page, limit, sort, time, requiredTags });
+    const ids = matchAllTags === false && requiredTags.filter(Boolean).length > 1
+      ? await this.fetchWorkshopIdsMatchingAnyTag({ query, page, limit, sort, time, requiredTags })
+      : await this.fetchWorkshopIdsFromSearch({ query, page, limit, sort, time, requiredTags });
     if (!ids.length) {
-      return { total: 0, page, data: [] };
+      return { total: 0, page, hasMore: false, data: [] };
     }
 
     const items = await this.getWorkshopItemsByIds(ids);
+    const hasMore = ids.length === Number(limit);
+    const total = hasMore
+      ? (Number(page) * Number(limit)) + 1
+      : ((Number(page) - 1) * Number(limit)) + ids.length;
 
     return {
-      total: items.length,
+      total,
       page,
+      hasMore,
       data: items
     };
   }
@@ -66,14 +76,44 @@ class WorkshopService {
     const html = await this.getText(`https://steamcommunity.com/workshop/browse/?${params}`);
     const ids = [];
     const seen = new Set();
-    const regex = /href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"/g;
-    let match;
-
-    while ((match = regex.exec(html)) && ids.length < limit) {
-      const publishedFileId = match[1];
+    for (const publishedFileId of this.extractPublishedFileIds(html)) {
       if (seen.has(publishedFileId)) continue;
       seen.add(publishedFileId);
       ids.push(publishedFileId);
+      if (ids.length >= limit) break;
+    }
+
+    return ids;
+  }
+
+  async fetchWorkshopIdsMatchingAnyTag({
+    query = '',
+    page = 1,
+    limit = 24,
+    sort = 'trend',
+    time = 'all',
+    requiredTags = []
+  } = {}) {
+    const tags = [...new Set(requiredTags.map(tag => String(tag || '').trim()).filter(Boolean))];
+    const seen = new Set();
+    const ids = [];
+
+    for (const tag of tags) {
+      const tagIds = await this.fetchWorkshopIdsFromSearch({
+        query,
+        page,
+        limit,
+        sort,
+        time,
+        requiredTags: [tag]
+      });
+
+      for (const publishedFileId of tagIds) {
+        if (seen.has(publishedFileId)) continue;
+        seen.add(publishedFileId);
+        ids.push(publishedFileId);
+        if (ids.length >= limit) return ids;
+      }
     }
 
     return ids;
@@ -123,8 +163,63 @@ class WorkshopService {
   }
 
   async getWorkshopItemsByAuthor(authorId, { limit = 24 } = {}) {
+    if (this.apiKey) {
+      try {
+        const apiItems = await this.getWorkshopItemsByAuthorApi(authorId, { limit });
+        if (apiItems.length > 0) {
+          return apiItems;
+        }
+        this.logger(`GetUserFiles no entrego wallpapers para autor ${authorId}. Uso fallback HTML.`);
+      } catch (error) {
+        this.logger(`GetUserFiles fallo para autor ${authorId}: ${error.message}. Uso fallback HTML.`);
+      }
+    }
+
     const ids = await this.fetchWorkshopIdsFromAuthor(authorId, { limit });
     return this.getWorkshopItemsByIds(ids);
+  }
+
+  async getWorkshopItemsByAuthorApi(authorId, { limit = 24 } = {}) {
+    const id = String(authorId || '').trim();
+    const maxItems = Math.max(1, Math.min(Number(limit) || 24, 100));
+
+    if (!/^\d+$/.test(id)) {
+      return [];
+    }
+
+    const allItems = [];
+    let cursor = '*';
+    let page = 1;
+
+    while (allItems.length < maxItems && cursor) {
+      const params = new URLSearchParams({
+        key: this.apiKey,
+        steamid: id,
+        appid: WALLPAPER_ENGINE_APP_ID,
+        numperpage: String(Math.min(100, maxItems - allItems.length)),
+        return_metadata: '1',
+        return_previews: '1',
+        return_tags: '1',
+        return_vote_data: '1',
+        sortmethod: 'creationorder'
+      });
+
+      if (cursor !== '*') {
+        params.set('cursor', cursor);
+      }
+
+      this.logger(`GetUserFiles author=${id} page=${page}`);
+      const response = await this.getJson(`https://api.steampowered.com/IPublishedFileService/GetUserFiles/v1/?${params}`);
+      const details = response?.response?.publishedfiledetails || [];
+
+      if (!details.length) break;
+
+      allItems.push(...details.map(item => this.normalizeWorkshopItem(item)));
+      cursor = response?.response?.next_cursor || '';
+      page += 1;
+    }
+
+    return this.attachAuthorProfiles(allItems.slice(0, maxItems));
   }
 
   async fetchWorkshopIdsFromAuthor(authorId, { limit = 24 } = {}) {
@@ -133,23 +228,31 @@ class WorkshopService {
       return [];
     }
 
-    const params = new URLSearchParams({
-      appid: WALLPAPER_ENGINE_APP_ID,
-      browsefilter: 'myfiles',
-      sort: 'score',
-      view: 'imagewall'
-    });
-    const html = await this.getText(`https://steamcommunity.com/profiles/${encodeURIComponent(id)}/myworkshopfiles/?${params}`);
     const ids = [];
     const seen = new Set();
-    const regex = /href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"/g;
-    let match;
+    const maxItems = Math.max(1, Number(limit) || 24);
+    const maxPages = Math.max(1, Math.ceil(maxItems / 30) + 1);
 
-    while ((match = regex.exec(html)) && ids.length < limit) {
-      const publishedFileId = match[1];
-      if (seen.has(publishedFileId)) continue;
-      seen.add(publishedFileId);
-      ids.push(publishedFileId);
+    for (let page = 1; page <= maxPages && ids.length < maxItems; page += 1) {
+      const params = new URLSearchParams({
+        appid: WALLPAPER_ENGINE_APP_ID,
+        browsefilter: 'myfiles',
+        sort: 'score',
+        view: 'imagewall',
+        p: String(page)
+      });
+
+      const html = await this.getText(`https://steamcommunity.com/profiles/${encodeURIComponent(id)}/myworkshopfiles/?${params}`);
+      const pageIds = this.extractPublishedFileIds(html);
+
+      if (!pageIds.length) break;
+
+      for (const publishedFileId of pageIds) {
+        if (seen.has(publishedFileId)) continue;
+        seen.add(publishedFileId);
+        ids.push(publishedFileId);
+        if (ids.length >= maxItems) break;
+      }
     }
 
     return ids;
@@ -277,27 +380,35 @@ class WorkshopService {
     fs.mkdirSync(targetRoot, { recursive: true });
     fs.mkdirSync(this.downloadRoot, { recursive: true });
 
-    const steamcmd = this.findSteamCmd();
-    if (!steamcmd) {
-      throw new Error('No encontre SteamCMD. Instala SteamCMD y vuelve a intentar.');
+    const downloader = this.findDownloader();
+    if (!downloader) {
+      throw new Error('No encontre SteamCMD ni DepotDownloader. Instala SteamCMD o repara la instalacion de la app.');
     }
 
-    const cacheDir = path.join(this.downloadRoot, String(publishedFileId));
-    const targetDir = path.join(targetRoot, String(publishedFileId));
-    const args = this.buildSteamCmdArgs({ publishedFileId, username, password });
+    const id = String(publishedFileId);
+    const cacheDir = path.join(this.downloadRoot, id);
+    const targetDir = path.join(targetRoot, id);
     const steamCmdContentDir = path.join(this.downloadRoot, 'steamapps', 'workshop', 'content', WALLPAPER_ENGINE_APP_ID, String(publishedFileId));
+    const downloadedDir = downloader.type === 'steamcmd'
+      ? steamCmdContentDir
+      : path.join(this.downloadRoot, 'incoming', id);
+    const args = this.buildDownloaderArgs({ downloader, publishedFileId, username, password, outputDir: downloadedDir });
 
-    fs.rmSync(steamCmdContentDir, { recursive: true, force: true });
+    fs.rmSync(downloadedDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(downloadedDir), { recursive: true });
+    if (downloader.type !== 'steamcmd') {
+      fs.mkdirSync(downloadedDir, { recursive: true });
+    }
 
-    this.logger(`Starting steamcmd download executable=${steamcmd} cwd=${this.downloadRoot} args=${this.redactArgs(args).join(' ')}`);
+    this.logger(`Starting ${downloader.name} download executable=${downloader.executable} cwd=${this.downloadRoot} args=${this.redactArgs(args).join(' ')}`);
 
-    const result = await this.runTool(steamcmd, args, {
+    const result = await this.runTool(downloader.executable, args, {
       cwd: this.downloadRoot
     });
 
     this.logger(`Downloader output for ${publishedFileId}:\n${result.output}`);
 
-    const projectDir = this.findProjectRoot(steamCmdContentDir);
+    const projectDir = this.findProjectRoot(downloadedDir);
     this.copyProjectDirectory(projectDir, cacheDir);
     this.copyProjectToMyProjects(projectDir, targetDir);
 
@@ -307,6 +418,7 @@ class WorkshopService {
       output: result.output,
       path: targetDir,
       downloadRoot: targetRoot,
+      downloader: downloader.name,
       wallpaper
     };
   }
@@ -338,15 +450,25 @@ class WorkshopService {
   }
 
   async getDownloaderStatus() {
+    const downloader = this.findDownloader();
     const steamcmd = this.findSteamCmd();
+    const depotDownloader = this.findDepotDownloader();
     const enginePaths = await this.steamReader.constructor.getWallpaperEnginePaths();
 
     return {
+      downloader: downloader?.executable || null,
+      downloaderName: downloader?.name || '',
+      downloaderType: downloader?.type || '',
       steamcmd,
+      depotDownloader,
+      searchedDownloaderPaths: [
+        ...this.getSteamCmdCandidates(),
+        ...this.getDepotDownloaderCandidates()
+      ],
       downloadRoot: this.downloadRoot,
       wallpaperEngineTarget: enginePaths.myProjectsPath,
       wallpaperEngineInstall: enginePaths.installPath,
-      hasDownloader: Boolean(steamcmd)
+      hasDownloader: Boolean(downloader)
     };
   }
 
@@ -459,15 +581,63 @@ class WorkshopService {
       .trim();
   }
 
+  extractPublishedFileIds(html) {
+    const source = String(html || '');
+    if (!source) {
+      return [];
+    }
+
+    const ids = [];
+    const seen = new Set();
+    const patterns = [
+      /sharedfiles\/filedetails\/\?id=(\d+)/gi,
+      /workshopfiledetails\/\?id=(\d+)/gi,
+      /data-publishedfileid=["']?(\d+)/gi,
+      /publishedfileid["']?\s*[:=]\s*["']?(\d+)/gi
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        const id = String(match[1] || '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+
+    return ids;
+  }
+
   getXmlTag(xml, tagName) {
     const match = new RegExp(`<${tagName}>\\s*(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?\\s*<\\/${tagName}>`, 'i').exec(String(xml || ''));
     return match ? match[1].trim() : '';
   }
 
-  getJson(url) {
+  getJson(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
-      https.get(url, { headers: this.requestHeaders() }, res => {
+      const requestUrl = this.normalizeSteamUrl(url);
+      https.get(requestUrl, { headers: this.requestHeaders() }, res => {
         let body = '';
+
+        if (this.isRedirect(res.statusCode)) {
+          const redirectUrl = this.resolveRedirectUrl(requestUrl, res.headers.location);
+          res.resume();
+
+          if (!redirectUrl) {
+            reject(new Error(`Steam API redirigio sin ubicacion (${res.statusCode})`));
+            return;
+          }
+
+          if (redirectCount >= MAX_REDIRECTS) {
+            reject(new Error(`Steam API redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
+            return;
+          }
+
+          this.logger(`Steam API redirect ${res.statusCode}: ${requestUrl} -> ${redirectUrl}`);
+          this.getJson(redirectUrl, redirectCount + 1).then(resolve, reject);
+          return;
+        }
 
         res.on('data', chunk => {
           body += chunk;
@@ -485,14 +655,15 @@ class WorkshopService {
             reject(new Error(`Respuesta invalida de Steam: ${error.message}`));
           }
         });
-      }).on('error', reject);
+      }).on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
     });
   }
 
   postForm(url, params) {
     return new Promise((resolve, reject) => {
+      const requestUrl = this.normalizeSteamUrl(url);
       const postData = params.toString();
-      const request = https.request(url, {
+      const request = https.request(requestUrl, {
         method: 'POST',
         headers: {
           ...this.requestHeaders(),
@@ -520,16 +691,36 @@ class WorkshopService {
         });
       });
 
-      request.on('error', reject);
+      request.on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
       request.write(postData);
       request.end();
     });
   }
 
-  getText(url) {
+  getText(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
-      https.get(url, { headers: this.requestHeaders() }, res => {
+      const requestUrl = this.normalizeSteamUrl(url);
+      https.get(requestUrl, { headers: this.requestHeaders() }, res => {
         let body = '';
+
+        if (this.isRedirect(res.statusCode)) {
+          const redirectUrl = this.resolveRedirectUrl(requestUrl, res.headers.location);
+          res.resume();
+
+          if (!redirectUrl) {
+            reject(new Error(`Steam Community redirigio sin ubicacion (${res.statusCode})`));
+            return;
+          }
+
+          if (redirectCount >= MAX_REDIRECTS) {
+            reject(new Error(`Steam Community redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
+            return;
+          }
+
+          this.logger(`Steam Community redirect ${res.statusCode}: ${requestUrl} -> ${redirectUrl}`);
+          this.getText(redirectUrl, redirectCount + 1).then(resolve, reject);
+          return;
+        }
 
         res.on('data', chunk => {
           body += chunk;
@@ -543,13 +734,54 @@ class WorkshopService {
 
           resolve(body);
         });
-      }).on('error', reject);
+      }).on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
     });
+  }
+
+  normalizeSteamUrl(url) {
+    const input = String(url || '');
+    const normalized = input.replace(/steamcomunity\.com/gi, 'steamcommunity.com');
+
+    if (normalized !== input) {
+      this.logger(`Corrigiendo URL de Steam Community: ${input} -> ${normalized}`);
+    }
+
+    return normalized;
+  }
+
+  friendlyNetworkError(error, url) {
+    if (error?.code !== 'ENOTFOUND') {
+      return error;
+    }
+
+    let hostname = '';
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      hostname = String(url || '');
+    }
+
+    return new Error(`No pude resolver ${hostname}. Verifica la conexion y que la URL sea steamcommunity.com. Error original: ${error.message}`);
+  }
+
+  isRedirect(statusCode) {
+    return [301, 302, 303, 307, 308].includes(Number(statusCode));
+  }
+
+  resolveRedirectUrl(currentUrl, location) {
+    if (!location) return '';
+
+    try {
+      return new URL(location, currentUrl).href;
+    } catch {
+      return '';
+    }
   }
 
   requestHeaders() {
     return {
-      'User-Agent': 'Mozilla/5.0 Wallpaper-App/1.0'
+      'User-Agent': 'Mozilla/5.0 Wallpaper-App/1.0',
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.7'
     };
   }
 
@@ -563,16 +795,58 @@ class WorkshopService {
   }
 
   findSteamCmd() {
-    const candidates = [
+    return this.getSteamCmdCandidates().find(candidate => fs.existsSync(candidate)) || null;
+  }
+
+  getSteamCmdCandidates() {
+    return [
       process.env.STEAMCMD_PATH,
       path.join(this.userDataPath, 'tools', 'steamcmd', 'steamcmd.exe'),
       process.resourcesPath && path.join(process.resourcesPath, 'app.asar.unpacked', 'tools', 'steamcmd', 'steamcmd.exe'),
+      process.resourcesPath && path.join(process.resourcesPath, 'tools', 'steamcmd', 'steamcmd.exe'),
+      process.execPath && path.join(path.dirname(process.execPath), 'tools', 'steamcmd', 'steamcmd.exe'),
       path.join(process.cwd(), 'tools', 'steamcmd', 'steamcmd.exe'),
       'C:\\steamcmd\\steamcmd.exe',
       path.join(os.homedir(), 'Downloads', 'steamcmd', 'steamcmd.exe')
     ].filter(Boolean);
+  }
 
-    return candidates.find(candidate => fs.existsSync(candidate)) || null;
+  findDepotDownloader() {
+    return this.getDepotDownloaderCandidates().find(candidate => fs.existsSync(candidate)) || null;
+  }
+
+  getDepotDownloaderCandidates() {
+    return [
+      process.env.DEPOTDOWNLOADER_PATH,
+      path.join(this.userDataPath, 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
+      process.resourcesPath && path.join(process.resourcesPath, 'app.asar.unpacked', 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
+      process.resourcesPath && path.join(process.resourcesPath, 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
+      process.execPath && path.join(path.dirname(process.execPath), 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
+      path.join(process.cwd(), 'tools', 'DepotDownloader', 'DepotDownloader.exe'),
+      path.join(os.homedir(), 'Downloads', 'DepotDownloader', 'DepotDownloader.exe')
+    ].filter(Boolean);
+  }
+
+  findDownloader() {
+    const steamcmd = this.findSteamCmd();
+    if (steamcmd) {
+      return { type: 'steamcmd', name: 'SteamCMD', executable: steamcmd };
+    }
+
+    const depotDownloader = this.findDepotDownloader();
+    if (depotDownloader) {
+      return { type: 'depotdownloader', name: 'DepotDownloader', executable: depotDownloader };
+    }
+
+    return null;
+  }
+
+  buildDownloaderArgs({ downloader, publishedFileId, username, password, outputDir }) {
+    if (downloader.type === 'steamcmd') {
+      return this.buildSteamCmdArgs({ publishedFileId, username, password });
+    }
+
+    return this.buildDepotDownloaderArgs({ publishedFileId, username, password, outputDir });
   }
 
   buildSteamCmdArgs({ publishedFileId, username, password }) {
@@ -589,6 +863,22 @@ class WorkshopService {
       String(publishedFileId),
       'validate',
       '+quit'
+    ];
+  }
+
+  buildDepotDownloaderArgs({ publishedFileId, username, password, outputDir }) {
+    return [
+      '-app',
+      WALLPAPER_ENGINE_APP_ID,
+      '-pubfile',
+      String(publishedFileId),
+      '-username',
+      username.trim(),
+      '-password',
+      password || '',
+      '-dir',
+      outputDir,
+      '-validate'
     ];
   }
 

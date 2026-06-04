@@ -17,11 +17,17 @@ import {
   isDownloadedWallpaper,
   sortSimilarWallpapers
 } from '../utils/wallpaperMeta';
+import { canShowWallpaper } from '../utils/contentPreferences';
 import '../styles/gallery.css';
 
 const PAGE_SIZE = 24;
 
-const Gallery = ({ category = '', search = '' }) => {
+const Gallery = ({
+  category = '',
+  search = '',
+  initialFeed = 'recent',
+  showMatureContent = false
+}) => {
   const [wallpapers, setWallpapers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -31,7 +37,7 @@ const Gallery = ({ category = '', search = '' }) => {
   const [selectedAuthorId, setSelectedAuthorId] = useState(null);
   const [subscriptions, setSubscriptions] = useState({});
   const [favorites, setFavorites] = useState([]);
-  const [activeFeed, setActiveFeed] = useState('recent');
+  const [activeFeed, setActiveFeed] = useState(initialFeed);
   const [viewMode, setViewMode] = useState('grid');
   const observerTarget = useRef(null);
 
@@ -46,6 +52,10 @@ const Gallery = ({ category = '', search = '' }) => {
       setFavorites([]);
     }
   }, []);
+
+  useEffect(() => {
+    setActiveFeed(initialFeed || 'recent');
+  }, [initialFeed]);
 
   const handleSubscribe = useCallback((authorId, isSubscribed) => {
     if (!authorId) return;
@@ -124,8 +134,9 @@ const Gallery = ({ category = '', search = '' }) => {
           wallpaper.tags?.join(' ')
         ].some(value => String(value || '').toLowerCase().includes(normalizedSearch));
       })
-      .map((wallpaper, index) => normalizeDesktopWallpaper(wallpaper, index));
-  }, [search, normalizeDesktopWallpaper]);
+      .map((wallpaper, index) => normalizeDesktopWallpaper(wallpaper, index))
+      .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
+  }, [search, normalizeDesktopWallpaper, showMatureContent]);
 
   const fetchWallpapers = useCallback(async (pageNum = 1, reset = false) => {
     try {
@@ -158,7 +169,9 @@ const Gallery = ({ category = '', search = '' }) => {
       if (search) params.append('search', search);
 
       const response = await axios.get(wallpapersUrl(`?${params}`));
-      const nextItems = (response.data.data || []).map(enrichWallpaperMetadata);
+      const nextItems = (response.data.data || [])
+        .map(enrichWallpaperMetadata)
+        .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
 
       setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
       setHasMore(response.data.pagination.page < response.data.pagination.pages);
@@ -167,7 +180,9 @@ const Gallery = ({ category = '', search = '' }) => {
     } catch (err) {
       console.error('Error fetching wallpapers:', err);
       const fallback = getLocalWallpapers({ page: pageNum, limit: PAGE_SIZE, category, search });
-      const nextItems = fallback.data.map(enrichWallpaperMetadata);
+      const nextItems = fallback.data
+        .map(enrichWallpaperMetadata)
+        .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
 
       setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
       setHasMore(fallback.pagination.page < fallback.pagination.pages);
@@ -176,7 +191,7 @@ const Gallery = ({ category = '', search = '' }) => {
     } finally {
       setLoading(false);
     }
-  }, [category, search, filterDesktopWallpapers]);
+  }, [category, search, filterDesktopWallpapers, showMatureContent]);
 
   useEffect(() => {
     setPage(1);
@@ -452,7 +467,11 @@ const Gallery = ({ category = '', search = '' }) => {
 
           {featuredAuthors.length > 0 && (
             <section className="featured-authors">
-              <button type="button" className="featured-authors-title">
+              <button
+                type="button"
+                className="featured-authors-title"
+                onClick={() => document.querySelector('.featured-authors-row')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+              >
                 Autores destacados <i className="bi bi-chevron-right"></i>
               </button>
               <div className="featured-authors-row">

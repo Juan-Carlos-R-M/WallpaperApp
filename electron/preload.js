@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWorkshopDownloaderStatus: () => ipcRenderer.invoke('get-workshop-downloader-status'),
   getWorkshopAuthorName: (publishedFileId) => ipcRenderer.invoke('get-workshop-author-name', publishedFileId),
   getWorkshopAuthorProfile: (authorId, options) => ipcRenderer.invoke('get-workshop-author-profile', authorId, options),
+  showDownloadResult: (options) => ipcRenderer.invoke('show-download-result', options),
   getAppLogInfo: () => ipcRenderer.invoke('get-app-log-info'),
   readAppLog: () => ipcRenderer.invoke('read-app-log'),
   openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),

@@ -5,6 +5,17 @@ import {
   getAuthorWallpapers,
   sortSimilarWallpapers
 } from '../utils/wallpaperMeta';
+import { canShowWallpaper, isMatureWallpaper } from '../utils/contentPreferences';
+import {
+  FAVORITES_STORAGE_KEY,
+  buildAuthorSubscriptionRecord,
+  followAuthorFromWallpaper,
+  loadAuthorSubscriptions,
+  loadFavoriteWallpapers,
+  recordWallpaperInteraction,
+  saveAuthorSubscriptions,
+  updateAuthorSubscription
+} from '../utils/recommendationSignals';
 import '../styles/steam-integration.css';
 // Importar Bootstrap Icons (asegúrate de tener instalado: npm install bootstrap-icons)
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -13,18 +24,34 @@ import AuthorProfile from './AuthorProfile';
 
 
 const FILTER_STORAGE_KEY = 'wallpaperApp.workshopFilters';
-export const FAVORITES_STORAGE_KEY = 'wallpaperApp.workshopFavorites';
 export const DOWNLOAD_CONFIRMATION_STORAGE_KEY = 'wallpaperApp.showDownloadConfirmation';
 const USERNAME_STORAGE_KEY = 'wallpaperApp.steamUsername';
 const ACCOUNTS_STORAGE_KEY = 'wallpaperApp.steamAccounts';
-const SUBSCRIPTIONS_STORAGE_KEY = 'wallpaperApp.subscriptions';
 const DEFAULT_STEAM_USERNAME = 'adgjl1182';
-const DEFAULT_FILTERS = {
+export const DEFAULT_WORKSHOP_FILTERS = {
   sort: 'trend',
   time: 'all',
-  type: ''
+  type: '',
+  genre: '',
+  assetType: '',
+  assetGenre: '',
+  scriptType: '',
+  ageRating: '',
+  matchAllTags: true
 };
+const DEFAULT_FILTERS = DEFAULT_WORKSHOP_FILTERS;
 const PAGE_SIZE = 18;
+
+const FAVORITE_CONTENT_TABS = [
+  { value: 'normal', label: 'Contenido normal', icon: 'bi-heart' },
+  { value: 'mature', label: 'Contenido maduro', icon: 'bi-shield-lock' }
+];
+
+const FAVORITE_SORT_TABS = [
+  { value: 'recent', label: 'Mas recientes', icon: 'bi-clock-history' },
+  { value: 'popular', label: 'Populares', icon: 'bi-star-fill' },
+  { value: 'downloads', label: 'Mas descargados', icon: 'bi-download' }
+];
 
 const loadSavedFilters = () => {
   try {
@@ -43,13 +70,67 @@ const TYPE_TAGS = [
   { value: 'Application', label: 'Aplicacion', icon: 'bi-window' }
 ];
 
-const loadFavorites = () => {
-  try {
-    const saved = localStorage.getItem(FAVORITES_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
+const WORKSHOP_FILTER_LABELS = {
+  sort: {
+    trend: 'Tendencia',
+    popular: 'Mas populares',
+    favorites: 'Mas favoritos',
+    recent: 'Recientes',
+    updated: 'Actualizados'
+  },
+  time: {
+    all: 'Todo el tiempo',
+    week: 'Ultima semana',
+    month: 'Ultimo mes',
+    quarter: 'Ultimos 3 meses',
+    year: 'Ultimo ano'
+  },
+  type: Object.fromEntries(TYPE_TAGS.map(tag => [tag.value, tag.label])),
+  genre: {},
+  assetType: {},
+  assetGenre: {},
+  scriptType: {},
+  ageRating: {
+    Everyone: 'Everyone',
+    Questionable: 'Questionable',
+    Mature: 'Mature'
   }
+};
+
+const getActiveWorkshopFilterChips = (filters = {}) => {
+  const chips = [];
+  const addChip = (key, label, value) => {
+    if (!value) return;
+    chips.push({
+      key,
+      label,
+      value: label ? `${label}: ${value}` : value
+    });
+  };
+
+  if (filters.sort && filters.sort !== DEFAULT_WORKSHOP_FILTERS.sort) {
+    addChip('sort', 'Orden', WORKSHOP_FILTER_LABELS.sort[filters.sort] || filters.sort);
+  }
+  if (filters.time && filters.time !== DEFAULT_WORKSHOP_FILTERS.time) {
+    addChip('time', 'Periodo', WORKSHOP_FILTER_LABELS.time[filters.time] || filters.time);
+  }
+
+  addChip('type', 'Tipo', WORKSHOP_FILTER_LABELS.type[filters.type] || filters.type);
+  addChip('genre', 'Genero', WORKSHOP_FILTER_LABELS.genre[filters.genre] || filters.genre);
+  addChip('assetType', 'Asset', WORKSHOP_FILTER_LABELS.assetType[filters.assetType] || filters.assetType);
+  addChip('assetGenre', 'Asset genero', WORKSHOP_FILTER_LABELS.assetGenre[filters.assetGenre] || filters.assetGenre);
+  addChip('scriptType', 'Script', WORKSHOP_FILTER_LABELS.scriptType[filters.scriptType] || filters.scriptType);
+  addChip('ageRating', 'Age rating', WORKSHOP_FILTER_LABELS.ageRating[filters.ageRating] || filters.ageRating);
+
+  if (filters.matchAllTags === false) {
+    addChip('matchAllTags', '', 'Cualquier tag');
+  }
+
+  return chips;
+};
+
+const loadFavorites = () => {
+  return loadFavoriteWallpapers();
 };
 
 const saveFavorites = (favorites) => {
@@ -57,11 +138,7 @@ const saveFavorites = (favorites) => {
 };
 
 const loadSubscriptions = () => {
-  try {
-    return JSON.parse(localStorage.getItem(SUBSCRIPTIONS_STORAGE_KEY) || '{}');
-  } catch {
-    return {};
-  }
+  return loadAuthorSubscriptions();
 };
 
 const loadSteamAccounts = () => {
@@ -79,7 +156,25 @@ const saveSteamAccounts = (accounts) => {
   localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 };
 
-const getRequiredTags = (nextFilters) => nextFilters.type ? [nextFilters.type] : [];
+const getRequiredTags = (nextFilters = {}) => [
+  nextFilters.type,
+  nextFilters.genre,
+  nextFilters.assetType,
+  nextFilters.assetGenre,
+  nextFilters.scriptType,
+  nextFilters.ageRating
+].filter(Boolean);
+
+const mergeUniqueWorkshopWallpapers = (currentItems = [], nextItems = []) => {
+  const seen = new Set();
+
+  return [...currentItems, ...nextItems].filter(item => {
+    const id = getWallpaperId(item);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
 
 const shouldShowDownloadConfirmation = () => (
   localStorage.getItem(DOWNLOAD_CONFIRMATION_STORAGE_KEY) !== 'false'
@@ -97,8 +192,49 @@ const formatDate = (timestamp) => {
   return new Date(timestamp * 1000).toLocaleDateString();
 };
 
+const getFavoriteRecentTime = (wallpaper = {}, index = 0) => {
+  const values = [
+    wallpaper.favoriteAddedAt,
+    wallpaper.likedAt,
+    wallpaper.addedAt,
+    wallpaper.timeUpdated ? Number(wallpaper.timeUpdated) * 1000 : 0,
+    wallpaper.timeCreated ? Number(wallpaper.timeCreated) * 1000 : 0
+  ];
+  const parsed = values
+    .map(value => (typeof value === 'number' ? value : Date.parse(value)))
+    .find(value => Number.isFinite(value) && value > 0);
+
+  return parsed || (Date.now() - index);
+};
+
+const getFavoritePopularityScore = (wallpaper = {}) => (
+  Number(wallpaper.favorited || 0) + Number(wallpaper.score || 0) * 1000
+);
+
+const sortFavoriteWallpapers = (items = [], sort = 'recent') => (
+  [...items].sort((a, b) => {
+    if (sort === 'downloads') {
+      return Number(b.subscriptions || 0) - Number(a.subscriptions || 0);
+    }
+
+    if (sort === 'popular') {
+      return getFavoritePopularityScore(b) - getFavoritePopularityScore(a);
+    }
+
+    return getFavoriteRecentTime(b) - getFavoriteRecentTime(a);
+  })
+);
+
 const isVideoWallpaper = (wallpaper = {}) => {
-  const mediaUrl = [wallpaper.playbackUrl, wallpaper.mediaUrl, wallpaper.localPath].filter(Boolean).join(' ');
+  const mediaUrl = [
+    wallpaper.playbackUrl,
+    wallpaper.mediaUrl,
+    wallpaper.localPath,
+    wallpaper.downloadUrl,
+    wallpaper.url,
+    wallpaper.path,
+    wallpaper.previewUrl
+  ].filter(Boolean).join(' ');
   return String(wallpaper.mediaType || '').toLowerCase() === 'video' || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i.test(mediaUrl);
 };
 
@@ -135,91 +271,6 @@ const formatPlaybackTime = (seconds = 0) => {
   const minutes = Math.floor(safeSeconds / 60);
   const rest = Math.floor(safeSeconds % 60);
   return `${minutes}:${String(rest).padStart(2, '0')}`;
-};
-
-const DownloadConfirmation = ({ wallpaper, onClose, onOpenLocation }) => {
-  if (!wallpaper) return null;
-
-  const tags = wallpaper.tags?.filter(tag => !['steam', 'wallpaper-engine'].includes(tag)).slice(0, 4) || [];
-  const location = wallpaper.localPath || wallpaper.path || '';
-  const size = wallpaper.fileSize ? `${(Number(wallpaper.fileSize) / 1024 / 1024).toFixed(1)} MB` : 'Listo para usar';
-  const downloadedAt = new Date().toLocaleString();
-  const videoUrl = isVideoWallpaper(wallpaper) ? toPlayableUrl(wallpaper.playbackUrl || wallpaper.mediaUrl) : '';
-  const previewUrl = toPlayableUrl(wallpaper.previewUrl || (!videoUrl ? wallpaper.playbackUrl || wallpaper.mediaUrl : ''));
-
-  return (
-    <div className="download-confirmation-backdrop">
-      <section className="download-confirmation" role="dialog" aria-modal="true" aria-labelledby="download-confirmation-title">
-        <header>
-          <div className="download-confirmation-icon">
-            <i className="bi bi-check-circle-fill"></i>
-          </div>
-          <div>
-            <h2 id="download-confirmation-title">Wallpaper descargado</h2>
-            <p>El wallpaper se ha descargado correctamente.</p>
-          </div>
-          <button type="button" className="download-confirmation-close" onClick={onClose}>
-            <i className="bi bi-x-lg"></i>
-          </button>
-        </header>
-
-        <div className="download-confirmation-body">
-          <div className="download-confirmation-preview">
-            {videoUrl ? (
-              <video src={videoUrl} poster={previewUrl} controls muted loop playsInline preload="metadata" />
-            ) : previewUrl ? (
-              <img src={previewUrl} alt={wallpaper.title} />
-            ) : (
-              <div><i className="bi bi-image-slash"></i> Sin preview</div>
-            )}
-          </div>
-
-          <aside>
-            <span className="download-confirmation-badge">
-              <i className="bi bi-steam"></i> Workshop
-            </span>
-            <h3>{wallpaper.title}</h3>
-            <p className="download-confirmation-author">
-              <i className="bi bi-person"></i> by {wallpaper.author || 'Wallpaper Engine'}
-            </p>
-            {tags.length > 0 && (
-              <div className="download-confirmation-tags">
-                {tags.map(tag => <span key={tag}><i className="bi bi-tag"></i> {tag}</span>)}
-              </div>
-            )}
-
-            <dl>
-              <div>
-                <dt><i className="bi bi-folder"></i> Ubicacion</dt>
-                <dd>{location || 'No disponible'}</dd>
-              </div>
-              <div>
-                <dt><i className="bi bi-filetype-mp4"></i> Tipo</dt>
-                <dd>{wallpaper.mediaType || 'Wallpaper'}</dd>
-              </div>
-              <div>
-                <dt><i className="bi bi-hdd-stack"></i> Tamano</dt>
-                <dd>{size}</dd>
-              </div>
-              <div>
-                <dt><i className="bi bi-calendar-check"></i> Descargado el</dt>
-                <dd>{downloadedAt}</dd>
-              </div>
-            </dl>
-          </aside>
-        </div>
-
-        <footer>
-          <button type="button" className="download-confirmation-secondary" onClick={() => onOpenLocation(location)} disabled={!location}>
-            <i className="bi bi-folder2-open"></i> Abrir ubicacion
-          </button>
-          <button type="button" className="download-confirmation-primary" onClick={onClose}>
-            <i className="bi bi-check-lg"></i> Aceptar
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
 };
 
 const WorkshopCard = ({
@@ -341,7 +392,14 @@ const WorkshopCard = ({
   );
 };
 
-const SteamIntegration = ({ favoritesOnly = false }) => {
+const SteamIntegration = ({
+  favoritesOnly = false,
+  searchQuery = '',
+  workshopFilters = DEFAULT_WORKSHOP_FILTERS,
+  onNotify = () => {},
+  onNavigate = () => {},
+  showMatureContent = false
+}) => {
   const [steamWallpapers, setSteamWallpapers] = useState([]);
   const [workshopWallpapers, setWorkshopWallpapers] = useState([]);
   const [workshopTotal, setWorkshopTotal] = useState(0);
@@ -353,8 +411,6 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const [workshopError, setWorkshopError] = useState(null);
   const [steamPath, setSteamPath] = useState('');
   const [downloaderStatus, setDownloaderStatus] = useState(null);
-  const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState(loadSavedFilters);
   const [favorites, setFavorites] = useState(loadFavorites);
   const [subscriptions, setSubscriptions] = useState(loadSubscriptions);
   const [steamAccounts, setSteamAccounts] = useState(loadSteamAccounts);
@@ -365,14 +421,72 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const [downloadingId, setDownloadingId] = useState('');
   const [deletingId, setDeletingId] = useState('');
   const [detailWallpaper, setDetailWallpaper] = useState(null);
-  const [downloadConfirmation, setDownloadConfirmation] = useState(null);
-  const [showFilters, setShowFilters] = useState(true);
   const [selectedWallpaper, setSelectedWallpaper] = useState(null);
   const [selectedAuthorId, setSelectedAuthorId] = useState(null);
   const [isSettingWallpaper, setIsSettingWallpaper] = useState(false);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [filterRefreshKey, setFilterRefreshKey] = useState(0);
+  const [favoriteContentTab, setFavoriteContentTab] = useState('normal');
+  const [favoriteSortTab, setFavoriteSortTab] = useState('recent');
   const loadMoreRef = useRef(null);
   const loadingMoreWorkshopRef = useRef(false);
+  const listScrollYRef = useRef(0);
+
+  const pushNotification = useCallback((message, type = 'error', extra = {}) => {
+    const payload = typeof message === 'object'
+      ? { type, ...message }
+      : { ...extra, type, message };
+
+    onNotify(payload);
+  }, [onNotify]);
+
+  const showWorkshopError = useCallback((message) => {
+    setWorkshopError(message);
+    pushNotification(message, 'error');
+  }, [pushNotification]);
+
+  const captureListScroll = useCallback(() => {
+    const scrollElement = document.scrollingElement || document.documentElement;
+    listScrollYRef.current = Math.max(
+      window.scrollY || window.pageYOffset || 0,
+      scrollElement?.scrollTop || 0
+    );
+  }, []);
+
+  const restoreListScroll = useCallback(() => {
+    const top = listScrollYRef.current || 0;
+    const restore = () => {
+      const scrollElement = document.scrollingElement || document.documentElement;
+      window.scrollTo({ top, left: 0, behavior: 'auto' });
+      if (scrollElement) {
+        scrollElement.scrollTop = top;
+      }
+    };
+
+    window.requestAnimationFrame(() => {
+      restore();
+      window.requestAnimationFrame(restore);
+    });
+    window.setTimeout(restore, 90);
+    window.setTimeout(restore, 220);
+  }, []);
+
+  const openDetailWallpaper = useCallback((wallpaper) => {
+    if (!detailWallpaper) {
+      captureListScroll();
+    }
+    setDetailWallpaper(wallpaper);
+  }, [captureListScroll, detailWallpaper]);
+
+  const closeDetailWallpaper = useCallback(() => {
+    setDetailWallpaper(null);
+    restoreListScroll();
+  }, [restoreListScroll]);
+
+  const navigateFromDetail = useCallback((target) => {
+    setDetailWallpaper(null);
+    setSelectedAuthorId(null);
+    onNavigate(target);
+  }, [onNavigate]);
 
   // Cargar wallpapers de Steam al montar el componente
   useEffect(() => {
@@ -380,21 +494,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     checkSteamPath();
     checkDownloaderStatus();
     loadVaultAccounts();
-    if (!favoritesOnly) {
-      searchWorkshop(null, { page: 1, append: false });
-    }
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
-  }, [filters]);
 
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
 
   useEffect(() => {
-    localStorage.setItem(SUBSCRIPTIONS_STORAGE_KEY, JSON.stringify(subscriptions));
+    saveAuthorSubscriptions(subscriptions);
   }, [subscriptions]);
 
   useEffect(() => {
@@ -406,37 +513,70 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   }, [steamAccounts]);
 
   useEffect(() => {
-    if (!downloadConfirmation) return undefined;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [downloadConfirmation]);
+    if (!showMatureContent && favoriteContentTab === 'mature') {
+      setFavoriteContentTab('normal');
+    }
+  }, [favoriteContentTab, showMatureContent]);
 
   useEffect(() => {
     if (favoritesOnly || !hasMoreWorkshop || workshopLoading) return undefined;
 
     const node = loadMoreRef.current;
-    if (!node) return undefined;
+    const requestNextPage = () => {
+      if (loadingMoreWorkshopRef.current) return;
+      loadingMoreWorkshopRef.current = true;
+      searchWorkshop(null, { page: workshopPage + 1, append: true });
+    };
+
+    const handleWindowScroll = () => {
+      const scrollElement = document.scrollingElement || document.documentElement;
+      const remaining = scrollElement.scrollHeight - window.innerHeight - window.scrollY;
+      if (remaining <= 1200) {
+        requestNextPage();
+      }
+    };
 
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !loadingMoreWorkshopRef.current) {
-        loadingMoreWorkshopRef.current = true;
-        searchWorkshop(null, { page: workshopPage + 1, append: true });
+      if (entry.isIntersecting) {
+        requestNextPage();
       }
     }, { rootMargin: '1000px 0px' });
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [favoritesOnly, hasMoreWorkshop, workshopLoading, workshopPage, query, filters]);
+    if (node) {
+      observer.observe(node);
+    }
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    const scrollCheckId = window.setTimeout(handleWindowScroll, 0);
+
+    return () => {
+      window.clearTimeout(scrollCheckId);
+      observer.disconnect();
+      window.removeEventListener('scroll', handleWindowScroll);
+    };
+  }, [
+    favoritesOnly,
+    hasMoreWorkshop,
+    workshopLoading,
+    workshopPage,
+    searchQuery,
+    workshopFilters.sort,
+    workshopFilters.time,
+    workshopFilters.type,
+    workshopFilters.genre,
+    workshopFilters.assetType,
+    workshopFilters.assetGenre,
+    workshopFilters.scriptType,
+    workshopFilters.ageRating,
+    workshopFilters.matchAllTags,
+    showMatureContent
+  ]);
 
   const loadSteamWallpapers = async () => {
     try {
       if (!window.electronAPI) {
-        setError('No estás en versión de escritorio. Algunos features no disponibles.');
+        const message = 'No estás en versión de escritorio. Algunos features no disponibles.';
+        setError(message);
+        pushNotification(message, 'error');
         return;
       }
 
@@ -448,10 +588,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
       if (result.success) {
         setSteamWallpapers(result.data);
       } else {
-        setError(result.error || 'Error al cargar wallpapers de Steam');
+        const message = result.error || 'Error al cargar wallpapers de Steam';
+        setError(message);
+        pushNotification(message, 'error');
       }
     } catch (err) {
-      setError('Error: ' + err.message);
+      const message = 'Error: ' + err.message;
+      setError(message);
+      pushNotification(message, 'error');
       console.error('Error loading Steam wallpapers:', err);
     } finally {
       setLoading(false);
@@ -478,8 +622,14 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
       const result = await window.electronAPI.getWorkshopDownloaderStatus();
       if (result.success) {
         setDownloaderStatus(result.data);
+        if (!result.data?.hasDownloader) {
+          pushNotification('No encontré SteamCMD ni DepotDownloader para descargar wallpapers. Revisa Configuración.', 'error');
+        }
+      } else {
+        pushNotification(result.error || 'No se pudo revisar el descargador de Workshop.', 'error');
       }
     } catch (err) {
+      pushNotification('Error revisando el descargador: ' + err.message, 'error');
       console.error('Error checking downloader status:', err);
     }
   };
@@ -521,10 +671,104 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     [downloadedById]
   );
 
+  const matchesHeaderSearch = useCallback((wallpaper = {}) => {
+    const normalizedQuery = String(searchQuery || '').trim().toLowerCase();
+    const tags = Array.isArray(wallpaper.tags) ? wallpaper.tags.map(tag => String(tag).toLowerCase()) : [];
+    const wallpaperType = String(wallpaper.mediaType || wallpaper.type || '').toLowerCase();
+    const requiredFilters = [
+      workshopFilters.type,
+      workshopFilters.genre,
+      workshopFilters.assetType,
+      workshopFilters.assetGenre,
+      workshopFilters.scriptType,
+      workshopFilters.ageRating
+    ].filter(Boolean).map(value => String(value).toLowerCase());
+
+    if (requiredFilters.length > 0) {
+      const tagMatches = requiredFilters.map(filterValue => (
+        wallpaperType === filterValue || tags.includes(filterValue)
+      ));
+      const matchesTags = workshopFilters.matchAllTags === false
+        ? tagMatches.some(Boolean)
+        : tagMatches.every(Boolean);
+
+      if (!matchesTags) return false;
+    }
+
+    if (!normalizedQuery) return true;
+
+    const searchableText = [
+      wallpaper.title,
+      wallpaper.author,
+      wallpaper.authorName,
+      wallpaper.description,
+      ...(Array.isArray(wallpaper.tags) ? wallpaper.tags : [])
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return searchableText.includes(normalizedQuery);
+  }, [
+    searchQuery,
+    workshopFilters.type,
+    workshopFilters.genre,
+    workshopFilters.assetType,
+    workshopFilters.assetGenre,
+    workshopFilters.scriptType,
+    workshopFilters.ageRating,
+    workshopFilters.matchAllTags
+  ]);
+
+  const activeFilterChips = useMemo(() => {
+    const chips = getActiveWorkshopFilterChips(workshopFilters);
+    const normalizedQuery = String(searchQuery || '').trim();
+
+    if (normalizedQuery) {
+      return [{ key: 'query', value: `Busqueda: ${normalizedQuery}` }, ...chips];
+    }
+
+    return chips;
+  }, [
+    searchQuery,
+    workshopFilters.sort,
+    workshopFilters.time,
+    workshopFilters.type,
+    workshopFilters.genre,
+    workshopFilters.assetType,
+    workshopFilters.assetGenre,
+    workshopFilters.scriptType,
+    workshopFilters.ageRating,
+    workshopFilters.matchAllTags
+  ]);
+
   // Filtrar wallpapers ya descargados de la lista del workshop
+  const visibleFavoriteWallpapers = useMemo(() => (
+    favorites.filter(wallpaper => matchesHeaderSearch(wallpaper))
+  ), [favorites, matchesHeaderSearch]);
+
+  const standardFavoriteCount = useMemo(() => (
+    visibleFavoriteWallpapers.filter(wallpaper => !isMatureWallpaper(wallpaper)).length
+  ), [visibleFavoriteWallpapers]);
+
+  const matureFavoriteCount = useMemo(() => (
+    visibleFavoriteWallpapers.filter(wallpaper => isMatureWallpaper(wallpaper)).length
+  ), [visibleFavoriteWallpapers]);
+
+  const activeFavoriteWallpapers = useMemo(() => {
+    const filtered = visibleFavoriteWallpapers.filter(wallpaper => (
+      favoriteContentTab === 'mature'
+        ? showMatureContent && isMatureWallpaper(wallpaper)
+        : !isMatureWallpaper(wallpaper)
+    ));
+
+    return sortFavoriteWallpapers(filtered, favoriteSortTab);
+  }, [favoriteContentTab, favoriteSortTab, showMatureContent, visibleFavoriteWallpapers]);
+
   const visibleWorkshopWallpapers = favoritesOnly
-    ? favorites
-    : workshopWallpapers.filter(wallpaper => !downloadedById.has(getWallpaperId(wallpaper)));
+    ? activeFavoriteWallpapers
+    : workshopWallpapers.filter(wallpaper => (
+      !downloadedById.has(getWallpaperId(wallpaper))
+      && matchesHeaderSearch(wallpaper)
+      && canShowWallpaper(wallpaper, showMatureContent)
+    ));
 
   const searchWorkshop = async (event, overrides = {}) => {
     event?.preventDefault();
@@ -534,11 +778,15 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
 
       setWorkshopLoading(true);
       setWorkshopError(null);
-      const nextQuery = overrides.query ?? query;
-      const nextFilters = overrides.filters ?? filters;
+      const nextQuery = overrides.query ?? searchQuery;
+      const nextFilters = overrides.filters ?? workshopFilters;
       const nextPage = overrides.page ?? 1;
       const append = Boolean(overrides.append);
       const requiredTags = getRequiredTags(nextFilters);
+
+      if (!append) {
+        setFilterRefreshKey(current => current + 1);
+      }
 
       const result = await window.electronAPI.searchWorkshopWallpapers({
         query: nextQuery,
@@ -546,19 +794,26 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
         limit: PAGE_SIZE,
         sort: nextFilters.sort,
         time: nextFilters.time,
-        requiredTags
+        requiredTags,
+        filters: nextFilters,
+        matchAllTags: nextFilters.matchAllTags !== false,
+        showMatureContent
       });
 
       if (result.success) {
-        setWorkshopWallpapers(current => append ? [...current, ...result.data.data] : result.data.data);
-        setWorkshopTotal(result.data.total);
+        const nextItems = result.data.data || [];
+        setWorkshopWallpapers(current => append ? mergeUniqueWorkshopWallpapers(current, nextItems) : nextItems);
+        setWorkshopTotal(current => append
+          ? Math.max(current, Number(result.data.total || 0), (nextPage - 1) * PAGE_SIZE + nextItems.length)
+          : Math.max(Number(result.data.total || 0), nextItems.length)
+        );
         setWorkshopPage(nextPage);
-        setHasMoreWorkshop(result.data.data.length === PAGE_SIZE);
+        setHasMoreWorkshop(Boolean(result.data.hasMore ?? nextItems.length === PAGE_SIZE));
       } else {
-        setWorkshopError(result.error || 'Error al consultar Steam Workshop');
+        showWorkshopError(result.error || 'Error al consultar Steam Workshop');
       }
     } catch (err) {
-      setWorkshopError('Error al consultar Workshop: ' + err.message);
+      showWorkshopError('Error al consultar Workshop: ' + err.message);
       console.error('Error searching Workshop:', err);
     } finally {
       setWorkshopLoading(false);
@@ -572,17 +827,34 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
     searchWorkshop(null, { page: workshopPage + 1, append: true });
   };
 
-  const updateFilter = (name, value) => {
-    const nextFilters = { ...filters, [name]: value };
-    setFilters(nextFilters);
-    searchWorkshop(null, { filters: nextFilters, page: 1, append: false });
-  };
+  useEffect(() => {
+    if (favoritesOnly) return undefined;
 
-  const resetFilters = () => {
-    setFilters(DEFAULT_FILTERS);
-    setQuery('');
-    searchWorkshop(null, { query: '', filters: DEFAULT_FILTERS, page: 1, append: false });
-  };
+    const searchDelay = window.setTimeout(() => {
+      loadingMoreWorkshopRef.current = false;
+      searchWorkshop(null, {
+        query: searchQuery,
+        filters: workshopFilters,
+        page: 1,
+        append: false
+      });
+    }, 320);
+
+    return () => window.clearTimeout(searchDelay);
+  }, [
+    favoritesOnly,
+    searchQuery,
+    workshopFilters.sort,
+    workshopFilters.time,
+    workshopFilters.type,
+    workshopFilters.genre,
+    workshopFilters.assetType,
+    workshopFilters.assetGenre,
+    workshopFilters.scriptType,
+    workshopFilters.ageRating,
+    workshopFilters.matchAllTags,
+    showMatureContent
+  ]);
 
   const toggleFavorite = (wallpaper) => {
     setFavorites(current => {
@@ -590,29 +862,90 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
         return current.filter(item => item.publishedFileId !== wallpaper.publishedFileId);
       }
 
-      return [wallpaper, ...current];
+      recordWallpaperInteraction(wallpaper, 'like');
+      return [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...current];
     });
   };
 
-  const handleSubscribe = useCallback((authorId, isSubscribed) => {
+  const handleSubscribe = useCallback((authorId, isSubscribed, wallpaper = null) => {
     if (!authorId) return;
-    setSubscriptions(current => ({ ...current, [authorId]: isSubscribed }));
+    setSubscriptions(current => updateAuthorSubscription(
+      current,
+      authorId,
+      isSubscribed,
+      wallpaper ? buildAuthorSubscriptionRecord(wallpaper, 'manual') : { source: 'manual' }
+    ));
   }, []);
 
   const selectedSteamAccount = steamAccounts.find(account => account.username === credentials.username);
+
+  const showDownloadResultPopup = useCallback(async ({
+    success = true,
+    title = '',
+    message = '',
+    wallpaper = null,
+    path = '',
+    error = ''
+  } = {}) => {
+    if ((success && !shouldShowDownloadConfirmation()) || !window.electronAPI?.showDownloadResult) {
+      return;
+    }
+
+    try {
+      const popupResult = await window.electronAPI.showDownloadResult({
+        success,
+        title,
+        message,
+        wallpaperTitle: wallpaper?.title || '',
+        wallpaper,
+        author: wallpaper?.author || wallpaper?.authorName || wallpaper?.creator || '',
+        tags: Array.isArray(wallpaper?.tags) ? wallpaper.tags : [],
+        previewUrl: wallpaper?.previewUrl || wallpaper?.image || wallpaper?.thumbnail || '',
+        resolution: wallpaper?.resolution || wallpaper?.dimensions || '',
+        fileSize: wallpaper?.fileSize || wallpaper?.size || '',
+        mediaType: wallpaper?.mediaType || wallpaper?.type || '',
+        path,
+        error
+      });
+
+      if (!popupResult?.success && popupResult?.error) {
+        pushNotification(`No se pudo mostrar o abrir el contenido: ${popupResult.error}`, 'error');
+      }
+    } catch (popupError) {
+      pushNotification(`No se pudo mostrar el aviso de descarga: ${popupError.message}`, 'error');
+    }
+  }, [pushNotification]);
 
   const downloadWorkshopWallpaper = async (wallpaper) => {
     try {
       if (!window.electronAPI) return;
       const wallpaperId = getWallpaperId(wallpaper);
 
+      if (!wallpaperId) {
+        showWorkshopError('Este wallpaper no tiene ID de Workshop y no se puede descargar.');
+        return;
+      }
+
       if (!credentials.username.trim()) {
-        setWorkshopError('Configura una cuenta Steam en Configuracion antes de descargar.');
+        showWorkshopError('Configura una cuenta Steam en Configuracion antes de descargar.');
+        return;
+      }
+
+      if (!downloaderStatus?.hasDownloader) {
+        showWorkshopError('No encontre SteamCMD ni DepotDownloader. Abre Configuracion para revisar el diagnostico de descarga.');
+        checkDownloaderStatus();
         return;
       }
 
       setDownloadingId(wallpaperId);
       setWorkshopError(null);
+      pushNotification({
+        type: 'progress',
+        title: 'Descarga iniciada',
+        message: `Se esta descargando "${wallpaper.title || 'Wallpaper de Workshop'}".`,
+        status: 'Descargando',
+        wallpaper
+      });
 
       const result = await window.electronAPI.downloadWorkshopWallpaper({
         publishedFileId: wallpaperId,
@@ -621,6 +954,12 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
       });
 
       if (result.success) {
+        const downloadedNotificationWallpaper = {
+          ...wallpaper,
+          ...result.data.wallpaper,
+          publishedFileId: wallpaperId || result.data.wallpaper?.publishedFileId
+        };
+
         if (result.data.wallpaper) {
           const nextWallpaper = {
             ...result.data.wallpaper,
@@ -636,29 +975,50 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
               : current
           ));
         }
-        if (shouldShowDownloadConfirmation()) {
-          setDownloadConfirmation({
-            ...wallpaper,
-            ...result.data.wallpaper,
-            title: result.data.wallpaper?.title || wallpaper.title,
-            author: result.data.wallpaper?.author || wallpaper.author,
-            tags: result.data.wallpaper?.tags || wallpaper.tags,
-            previewUrl: result.data.wallpaper?.previewUrl || wallpaper.previewUrl,
-            fileSize: wallpaper.fileSize,
-            path: result.data.path,
-            localPath: result.data.wallpaper?.localPath || result.data.path
-          });
-        }
+        const downloadPath = result.data.path || result.data.wallpaper?.localPath || '';
+        void showDownloadResultPopup({
+          success: true,
+          title: result.data.wallpaper?.title || wallpaper.title || 'Wallpaper descargado',
+          message: 'La descarga termino correctamente. Puedes abrir la carpeta del contenido.',
+          wallpaper: downloadedNotificationWallpaper,
+          path: downloadPath
+        });
+        pushNotification({
+          type: 'success',
+          title: 'Descarga completada',
+          message: `"${downloadedNotificationWallpaper.title || wallpaper.title || 'Wallpaper'}" ya esta listo para usar.`,
+          status: 'Completada',
+          wallpaper: downloadedNotificationWallpaper,
+          path: downloadPath
+        });
+        recordWallpaperInteraction(downloadedNotificationWallpaper, 'download');
         const authorId = wallpaper.authorId || wallpaper.author;
         if (authorId) {
-          handleSubscribe(authorId, true);
+          const nextSubscriptions = followAuthorFromWallpaper(downloadedNotificationWallpaper, 'download');
+          setSubscriptions(nextSubscriptions);
         }
         loadSteamWallpapers();
       } else {
-        setWorkshopError(result.error || 'No se pudo descargar el wallpaper');
+        const message = result.error || 'No se pudo descargar el wallpaper';
+        showWorkshopError(message);
+        void showDownloadResultPopup({
+          success: false,
+          title: 'Descarga fallida',
+          message,
+          wallpaper,
+          error: message
+        });
       }
     } catch (err) {
-      setWorkshopError('Error al descargar: ' + err.message);
+      const message = 'Error al descargar: ' + err.message;
+      showWorkshopError(message);
+      void showDownloadResultPopup({
+        success: false,
+        title: 'Descarga fallida',
+        message,
+        wallpaper,
+        error: message
+      });
       console.error('Error downloading Workshop wallpaper:', err);
     } finally {
       setDownloadingId('');
@@ -690,10 +1050,10 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
         ));
         loadSteamWallpapers();
       } else {
-        setWorkshopError(result.error || 'No se pudo eliminar el wallpaper');
+        showWorkshopError(result.error || 'No se pudo eliminar el wallpaper');
       }
     } catch (err) {
-      setWorkshopError('Error al eliminar: ' + err.message);
+      showWorkshopError('Error al eliminar: ' + err.message);
       console.error('Error deleting Workshop wallpaper:', err);
     } finally {
       setDeletingId('');
@@ -703,12 +1063,12 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
   const handleSetAsWallpaper = useCallback(async (wallpaper) => {
     try {
       if (!window.electronAPI) {
-        alert('Esta función solo está disponible en la versión de escritorio');
+        pushNotification('Esta función solo está disponible en la versión de escritorio.', 'error');
         return;
       }
 
       if (isSceneWallpaper(wallpaper)) {
-        alert([
+        pushNotification([
           'Este wallpaper es una escena de Wallpaper Engine.',
           'Las escenas no se pueden establecer como fondo desde Windows ni desde esta app.',
           'Si Wallpaper Engine dice que requiere una version mas nueva, actualiza Wallpaper Engine desde Steam.'
@@ -721,39 +1081,22 @@ const SteamIntegration = ({ favoritesOnly = false }) => {
 
       if (result.success) {
         setSelectedWallpaper(wallpaper);
-        alert(`✓ Wallpaper "${wallpaper.title}" establecido correctamente`);
+        pushNotification(`Wallpaper "${wallpaper.title}" establecido correctamente.`, 'success');
       } else {
-        alert(`✗ Error: ${result.error}`);
+        pushNotification(`Error: ${result.error}`, 'error');
       }
     } catch (error) {
       console.error('Error setting wallpaper:', error);
-      alert('Error al establecer wallpaper: ' + error.message);
+      pushNotification('Error al establecer wallpaper: ' + error.message, 'error');
     } finally {
       setIsSettingWallpaper(false);
     }
-  }, []);
+  }, [pushNotification]);
 
   const handleRefresh = useCallback(() => {
     loadSteamWallpapers();
     checkDownloaderStatus();
   }, []);
-
-  const openDownloadLocation = async (targetPath) => {
-    try {
-      if (!window.electronAPI?.openPath || !targetPath) return;
-      await window.electronAPI.openPath(targetPath);
-    } catch (err) {
-      setWorkshopError('No se pudo abrir la ubicacion: ' + err.message);
-    }
-  };
-
-  const downloadConfirmationDialog = (
-    <DownloadConfirmation
-      wallpaper={downloadConfirmation}
-      onClose={() => setDownloadConfirmation(null)}
-      onOpenLocation={openDownloadLocation}
-    />
-  );
 
   if (!window.electronAPI) {
     return (
@@ -772,9 +1115,11 @@ if (detailWallpaper) {
     ...workshopWallpapers,
     ...steamWallpapers,
     ...favorites
-  ].map((wallpaper) => enrichWallpaperMetadata(
-    mergeDownloadedWallpaper(wallpaper, getDownloadedWallpaper(wallpaper)) || wallpaper
-  ));
+  ]
+    .map((wallpaper) => enrichWallpaperMetadata(
+      mergeDownloadedWallpaper(wallpaper, getDownloadedWallpaper(wallpaper)) || wallpaper
+    ))
+    .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
   const relatedWallpapers = sortSimilarWallpapers(activeDetailWallpaper, detailPool).slice(0, 12);
   const directAuthorWallpapers = getAuthorWallpapers(activeDetailWallpaper, detailPool).slice(0, 12);
   const authorWallpapers = directAuthorWallpapers.length > 0
@@ -783,9 +1128,10 @@ if (detailWallpaper) {
 
   return (
     <div className="steam-integration">
-      <WallpaperDetails
+        <WallpaperDetails
         wallpaper={activeDetailWallpaper}
-        onClose={() => setDetailWallpaper(null)}
+        onClose={closeDetailWallpaper}
+        onNavigate={navigateFromDetail}
         onDownload={downloadWorkshopWallpaper}
         onDelete={deleteWorkshopWallpaper}
         onToggleFavorite={toggleFavorite}
@@ -799,22 +1145,22 @@ if (detailWallpaper) {
         downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
         relatedWallpapers={relatedWallpapers}
         authorWallpapers={authorWallpapers}
-        onOpenRelated={setDetailWallpaper}
-        sourceName="Workshop"
+        onOpenRelated={openDetailWallpaper}
+        sourceName={favoritesOnly ? 'Me gusta' : 'Workshop'}
         sourceIcon="steam"
+        sourceTarget={favoritesOnly ? 'favorites' : 'steam'}
         showComments={true}
       />
       {selectedAuthorId && (
         <AuthorProfile
           authorId={selectedAuthorId}
-          allWallpapers={[...steamWallpapers, ...workshopWallpapers, ...favorites]}
+          allWallpapers={[...steamWallpapers, ...workshopWallpapers, ...favorites].filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent))}
           subscriptions={subscriptions}
           onClose={() => setSelectedAuthorId(null)}
           onSubscribe={handleSubscribe}
-          onOpenWallpaper={setDetailWallpaper}
+          onOpenWallpaper={openDetailWallpaper}
         />
       )}
-      {downloadConfirmationDialog}
     </div>
   );
 }
@@ -949,6 +1295,26 @@ if (detailWallpaper) {
     </div>
   );
 
+  const renderWallpaperGrid = (items) => (
+    <div className="steam-grid workshop-grid virtual-grid">
+      {items.map(wallpaper => (
+        <WorkshopCard
+          key={wallpaper.publishedFileId}
+          wallpaper={wallpaper}
+          downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
+          isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
+          isDownloading={downloadingId === getWallpaperId(wallpaper)}
+          isDeleting={deletingId === getWallpaperId(wallpaper)}
+          downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
+          onOpen={openDetailWallpaper}
+          onDownload={downloadWorkshopWallpaper}
+          onDelete={deleteWorkshopWallpaper}
+          onToggleFavorite={toggleFavorite}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div className="steam-integration">
       <div className="steam-header">
@@ -1015,16 +1381,11 @@ if (detailWallpaper) {
             <div className="steam-error">
               <i className="bi bi-tools"></i>
               <div>
-                <p>No encontré SteamCMD para descargar wallpapers.</p>
+                <p>No encontré SteamCMD ni DepotDownloader para descargar wallpapers.</p>
                 <small>Abre Configuración para revisar el diagnóstico.</small>
               </div>
             </div>
           )}
-
-          <form className="workshop-search-form" onSubmit={searchWorkshop}>
-            <SearchBar />
-            {showFilters && <FiltersPanel />}
-          </form>
 
           {workshopError && (
             <div className="steam-error">
@@ -1036,11 +1397,25 @@ if (detailWallpaper) {
             </div>
           )}
 
-          {!workshopLoading && !workshopError && workshopWallpapers.length === 0 && (
+          {activeFilterChips.length > 0 && (
+            <div className={`workshop-active-filters ${workshopLoading ? 'refreshing' : ''}`} key={filterRefreshKey}>
+              <span>
+                <i className={`bi bi-${workshopLoading ? 'arrow-repeat spin-icon' : 'funnel-fill'}`}></i>
+                {workshopLoading ? 'Actualizando resultados' : 'Filtros aplicados'}
+              </span>
+              <div>
+                {activeFilterChips.map(chip => (
+                  <em key={chip.key}>{chip.value}</em>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!workshopLoading && !workshopError && visibleWorkshopWallpapers.length === 0 && (
             <div className="steam-empty workshop-empty">
               <i className="bi bi-inbox"></i>
               <p>No hay resultados con estos filtros</p>
-              <small>Prueba otro tipo, período u orden.</small>
+              <small>{showMatureContent ? 'Prueba otro tipo, periodo u orden.' : 'Activa contenido maduro en Configuracion si quieres incluir resultados Mature.'}</small>
             </div>
           )}
 
@@ -1048,7 +1423,7 @@ if (detailWallpaper) {
             <>
               <div className="steam-stats workshop-stats">
                 <div className="stats-left">
-                  <i className="bi bi-grid-3x3-gap-fill"></i>
+                  <i className={`bi bi-${workshopLoading ? 'arrow-repeat spin-icon' : 'grid-3x3-gap-fill'}`}></i>
                   <h3>Resultados</h3>
                 </div>
                 <div className="stats-right">
@@ -1056,26 +1431,7 @@ if (detailWallpaper) {
                   <p>{workshopTotal.toLocaleString()} resultados encontrados</p>
                 </div>
               </div>
-              <div className="steam-grid workshop-grid virtual-grid">
-                {visibleWorkshopWallpapers.map(wallpaper => (
-                  <WorkshopCard
-  key={wallpaper.publishedFileId}
-  wallpaper={wallpaper}
-  downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
-  isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
-  isDownloading={downloadingId === getWallpaperId(wallpaper)}
-  isDeleting={deletingId === getWallpaperId(wallpaper)}
-  downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
-  onOpen={(wallpaperItem) => {
-    // wallpaperItem ya viene mergeado de WorkshopCard
-    setDetailWallpaper(wallpaperItem);
-  }}
-  onDownload={downloadWorkshopWallpaper}
-  onDelete={deleteWorkshopWallpaper}
-  onToggleFavorite={toggleFavorite}
-/>
-                ))}
-              </div>
+              {renderWallpaperGrid(visibleWorkshopWallpapers)}
               {!favoritesOnly && hasMoreWorkshop && (
                 <div ref={loadMoreRef} className="gallery-loader workshop-loader">
                   {workshopLoading ? (
@@ -1084,10 +1440,10 @@ if (detailWallpaper) {
                       Cargando más wallpapers...
                     </>
                   ) : (
-                    <>
+                    <button type="button" onClick={loadMoreWorkshopWallpapers}>
                       <i className="bi bi-chevron-double-down"></i>
-                      Desplázate para más resultados
-                    </>
+                      Cargar mas resultados
+                    </button>
                   )}
                 </div>
               )}
@@ -1107,11 +1463,24 @@ if (detailWallpaper) {
               </div>
             </div>
           )}
-          {favorites.length === 0 ? (
+          {activeFilterChips.length > 0 && (
+            <div className={`workshop-active-filters ${workshopLoading ? 'refreshing' : ''}`} key={filterRefreshKey}>
+              <span>
+                <i className={`bi bi-${workshopLoading ? 'arrow-repeat spin-icon' : 'funnel-fill'}`}></i>
+                {workshopLoading ? 'Actualizando favoritos' : 'Filtros aplicados'}
+              </span>
+              <div>
+                {activeFilterChips.map(chip => (
+                  <em key={chip.key}>{chip.value}</em>
+                ))}
+              </div>
+            </div>
+          )}
+          {visibleFavoriteWallpapers.length === 0 ? (
             <div className="steam-empty workshop-empty">
               <i className="bi bi-heart"></i>
-              <p>No tienes wallpapers marcados con me gusta</p>
-              <small>Marca wallpapers desde Steam Workshop para verlos aquí.</small>
+              <p>{favorites.length === 0 ? 'No tienes wallpapers marcados con me gusta' : 'No hay favoritos con estos filtros'}</p>
+              <small>{showMatureContent ? 'Marca wallpapers desde Steam Workshop para verlos aqui.' : 'El contenido Mature esta oculto desde Configuracion.'}</small>
             </div>
           ) : (
             <>
@@ -1122,26 +1491,55 @@ if (detailWallpaper) {
                 </div>
                 <div className="stats-right">
                   <i className="bi bi-collection"></i>
-                  <p>{favorites.length} wallpapers marcados</p>
+                  <p>{visibleFavoriteWallpapers.length} wallpapers marcados</p>
                 </div>
               </div>
-              <div className="steam-grid workshop-grid virtual-grid">
-                {favorites.map(wallpaper => (
-                  <WorkshopCard
-                    key={wallpaper.publishedFileId}
-                    wallpaper={wallpaper}
-                    downloadedWallpaper={getDownloadedWallpaper(wallpaper)}
-                    isFavorite={favoriteIds.has(getWallpaperId(wallpaper))}
-                    isDownloading={downloadingId === getWallpaperId(wallpaper)}
-                    isDeleting={deletingId === getWallpaperId(wallpaper)}
-                    downloaderReady={Boolean(downloaderStatus?.hasDownloader)}
-                    onOpen={setDetailWallpaper}
-                    onDownload={downloadWorkshopWallpaper}
-                    onDelete={deleteWorkshopWallpaper}
-                    onToggleFavorite={toggleFavorite}
-                  />
-                ))}
+              <div className="favorites-toolbar">
+                <div className="favorites-tabs content-tabs" role="tablist" aria-label="Tipo de contenido en Me gusta">
+                  {FAVORITE_CONTENT_TABS.map(tab => {
+                    const count = tab.value === 'mature' ? matureFavoriteCount : standardFavoriteCount;
+                    const disabled = tab.value === 'mature' && !showMatureContent;
+
+                    return (
+                      <button
+                        key={tab.value}
+                        type="button"
+                        className={favoriteContentTab === tab.value ? 'active' : ''}
+                        onClick={() => setFavoriteContentTab(tab.value)}
+                        disabled={disabled}
+                      >
+                        <i className={`bi ${tab.icon}`}></i>
+                        <span>{tab.label}</span>
+                        <em>{count}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="favorites-tabs sort-tabs" role="tablist" aria-label="Ordenar Me gusta">
+                  {FAVORITE_SORT_TABS.map(tab => (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      className={favoriteSortTab === tab.value ? 'active' : ''}
+                      onClick={() => setFavoriteSortTab(tab.value)}
+                    >
+                      <i className={`bi ${tab.icon}`}></i>
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {visibleWorkshopWallpapers.length > 0 ? (
+                renderWallpaperGrid(visibleWorkshopWallpapers)
+              ) : (
+                <div className="steam-empty workshop-empty favorites-tab-empty">
+                  <i className={`bi bi-${favoriteContentTab === 'mature' ? 'shield-lock' : 'heart'}`}></i>
+                  <p>No hay wallpapers en esta pestaña</p>
+                  <small>{favoriteContentTab === 'mature' ? 'Activa o marca contenido maduro para verlo aqui.' : 'Tus me gusta normales apareceran ordenados por los mas recientes.'}</small>
+                </div>
+              )}
             </>
           )}
         </section>
@@ -1162,7 +1560,6 @@ if (detailWallpaper) {
         </div>
       )}
 
-      {downloadConfirmationDialog}
     </div>
   );
 };

@@ -144,6 +144,12 @@
   text-align: left;
 }
 
+.home-category-strip button.active {
+  border-color: rgb(var(--color-accent-rgb) / 0.66);
+  background: rgb(var(--color-accent-rgb) / 0.16);
+  box-shadow: 0 12px 30px rgb(var(--color-accent-rgb) / 0.18);
+}
+
 .home-category-strip i {
   display: grid;
   width: 38px;

@@ -9,6 +9,7 @@ import {
   getAuthorName,
   getPreviewUrl
 } from '../utils/wallpaperMeta';
+import { isAuthorSubscribed } from '../utils/recommendationSignals';
 import '../styles/author-profile.css';
 
 export default function AuthorProfile({
@@ -147,12 +148,12 @@ export default function AuthorProfile({
   };
 
   const profileId = profile.id || authorId;
-  const isSubscribed = Boolean(subscriptions[profileId] || subscriptions[authorId]);
+  const isSubscribed = isAuthorSubscribed(subscriptions[profileId] || subscriptions[authorId]);
   const coverUrl = firstWallpaper ? getPreviewUrl(firstWallpaper) : '';
   const avatarUrl = profile.avatar || profile.avatarUrl || '';
 
   const handleSubscribe = () => {
-    onSubscribe?.(profileId, !isSubscribed);
+    onSubscribe?.(profileId, !isSubscribed, firstWallpaper);
   };
 
   const handleOpenWallpaper = (wallpaper) => {

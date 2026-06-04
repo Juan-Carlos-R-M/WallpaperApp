@@ -45,7 +45,11 @@ export const isVideoWallpaper = (wallpaper = {}) => {
   const mediaUrl = [
     wallpaper.playbackUrl,
     wallpaper.mediaUrl,
-    wallpaper.localPath
+    wallpaper.localPath,
+    wallpaper.downloadUrl,
+    wallpaper.url,
+    wallpaper.path,
+    wallpaper.previewUrl
   ].filter(Boolean).join(' ');
 
   return String(wallpaper.mediaType || '').toLowerCase() === 'video'
@@ -71,8 +75,16 @@ export const getPreviewUrl = (wallpaper = {}) => toPlayableUrl(
 export const getVideoPlaybackUrl = (wallpaper = {}) => {
   if (!isVideoWallpaper(wallpaper)) return '';
 
-  const source = wallpaper.playbackUrl || wallpaper.mediaUrl || wallpaper.localPath || '';
-  if (!source || source === wallpaper.previewUrl) return '';
+  const source = [
+    wallpaper.playbackUrl,
+    wallpaper.mediaUrl,
+    wallpaper.localPath,
+    wallpaper.downloadUrl,
+    wallpaper.url,
+    wallpaper.path,
+    wallpaper.previewUrl
+  ].find(Boolean) || '';
+  if (!source) return '';
 
   return toPlayableUrl(source);
 };

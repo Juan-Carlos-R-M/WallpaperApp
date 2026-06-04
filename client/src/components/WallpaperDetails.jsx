@@ -18,6 +18,7 @@ export default function WallpaperDetails({
   wallpaper,
   onClose,
   onBack,
+  onNavigate,
   onDownload,
   onDelete,
   onToggleFavorite,
@@ -34,6 +35,7 @@ export default function WallpaperDetails({
   onOpenRelated,
   sourceName = 'Local',
   sourceIcon = 'hdd-stack',
+  sourceTarget = '',
   showComments = false
 }) {
   const overlayRef = useRef(null);
@@ -206,6 +208,15 @@ export default function WallpaperDetails({
     onOpenAuthor?.(authorId);
   };
 
+  const handleBreadcrumbNavigate = (target) => {
+    if (onNavigate && target) {
+      onNavigate(target);
+      return;
+    }
+
+    (onBack || onClose)?.();
+  };
+
   const handleOpenRelated = (item) => {
     if (!item || !onOpenRelated) return;
     overlayRef.current?.scrollTo({ top: 0 });
@@ -326,11 +337,11 @@ export default function WallpaperDetails({
     <div className="wallpaper-details-overlay" ref={overlayRef} onClick={onClose}>
       <section className="wallpaper-detail-screen" onClick={(event) => event.stopPropagation()}>
         <nav className="detail-breadcrumb">
-          <button type="button" onClick={onBack || onClose}>
+          <button type="button" onClick={() => handleBreadcrumbNavigate('home')}>
             <i className="bi bi-house-door"></i> Inicio
           </button>
           <i className="bi bi-chevron-right"></i>
-          <button type="button" onClick={onBack || onClose}>
+          <button type="button" onClick={() => handleBreadcrumbNavigate(sourceTarget)}>
             <i className={`bi bi-${sourceIcon}`}></i> {sourceName}
           </button>
           <i className="bi bi-chevron-right"></i>
