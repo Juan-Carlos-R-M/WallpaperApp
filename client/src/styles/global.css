@@ -100,6 +100,16 @@ body {
   will-change: auto;
 }
 
+body,
+button,
+input {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+
 input, button {
   font-family: inherit;
 }

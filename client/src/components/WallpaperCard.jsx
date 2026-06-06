@@ -8,6 +8,7 @@ import {
   isDownloadedWallpaper,
   isVideoWallpaper
 } from '../utils/wallpaperMeta';
+import { applyWallpaperAccent } from '../utils/dynamicAccent';
 import '../styles/wallpaper-card.css';
 
 const WallpaperCard = memo(({
@@ -59,7 +60,13 @@ const WallpaperCard = memo(({
     if (event.target.closest('button') && !event.target.closest('.card-info')) {
       return;
     }
+    applyWallpaperAccent(displayWallpaper);
     onOpenDetails?.({ ...displayWallpaper, downloaded: isDownloaded });
+  };
+
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    applyWallpaperAccent(displayWallpaper);
   };
 
   const handleAuthorClick = (event) => {
@@ -105,7 +112,7 @@ const WallpaperCard = memo(({
       setDownloadNotice({ wallpaper: downloadedWallpaper, message });
 
       if (displayWallpaper.authorId) {
-        onSubscribe?.(displayWallpaper.authorId, true);
+        onSubscribe?.(displayWallpaper.authorId, true, displayWallpaper);
       }
     } catch (error) {
       console.error('Error downloading wallpaper:', error);
@@ -142,7 +149,7 @@ const WallpaperCard = memo(({
     <div
       ref={cardRef}
       className={`wallpaper-card ${isDownloaded ? 'downloaded' : ''}`}
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
     >

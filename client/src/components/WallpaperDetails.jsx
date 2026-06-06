@@ -11,6 +11,7 @@ import {
   getVideoPlaybackUrl,
   normalizeTags
 } from '../utils/wallpaperMeta';
+import { applyWallpaperAccent } from '../utils/dynamicAccent';
 import '../styles/steam-integration.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 
@@ -48,9 +49,26 @@ export default function WallpaperDetails({
   const [favorite, setFavorite] = useState(isFavorite);
   const [subscribed, setSubscribed] = useState(isSubscribed);
   const [resolvedAuthor, setResolvedAuthor] = useState('');
+  const [workshopWallpaperDetails, setWorkshopWallpaperDetails] = useState(null);
   const [workshopAuthorProfile, setWorkshopAuthorProfile] = useState(null);
 
-  const displayWallpaper = enrichWallpaperMetadata(wallpaper || {});
+  const localWallpaper = enrichWallpaperMetadata(wallpaper || {});
+  const displayWallpaper = enrichWallpaperMetadata({
+    ...localWallpaper,
+    ...(workshopWallpaperDetails || {}),
+    description: localWallpaper.description || workshopWallpaperDetails?.description || '',
+    previewUrl: localWallpaper.previewUrl || workshopWallpaperDetails?.previewUrl,
+    mediaUrl: localWallpaper.mediaUrl || workshopWallpaperDetails?.mediaUrl,
+    playbackUrl: localWallpaper.playbackUrl || workshopWallpaperDetails?.playbackUrl,
+    localPath: localWallpaper.localPath,
+    installed: localWallpaper.installed,
+    downloaded: localWallpaper.downloaded,
+    fromSteam: localWallpaper.fromSteam || workshopWallpaperDetails?.fromSteam,
+    tags: Array.from(new Set([
+      ...(Array.isArray(workshopWallpaperDetails?.tags) ? workshopWallpaperDetails.tags : []),
+      ...(Array.isArray(localWallpaper.tags) ? localWallpaper.tags : [])
+    ].filter(Boolean)))
+  });
   const authorInfo = workshopAuthorProfile?.profile || getAuthorInfo(displayWallpaper) || displayWallpaper.authorInfo;
 
   useEffect(() => {
@@ -94,25 +112,61 @@ export default function WallpaperDetails({
   }, [displayWallpaper.authorId, displayWallpaper.creator, displayWallpaper.publishedFileId]);
 
   useEffect(() => {
+    setWorkshopWallpaperDetails(null);
+
+    const publishedFileId = localWallpaper.publishedFileId;
+    const shouldFetchDetails = Boolean(
+      publishedFileId
+      && /^\d+$/.test(String(publishedFileId))
+      && window?.electronAPI
+      && typeof window.electronAPI.getWorkshopWallpaperDetails === 'function'
+    );
+
+    if (!shouldFetchDetails) return undefined;
+
+    let active = true;
+
+    const fetchWorkshopDetails = async () => {
+      try {
+        const result = await window.electronAPI.getWorkshopWallpaperDetails(publishedFileId);
+        if (!active || !result?.success || !result.data) return;
+        setWorkshopWallpaperDetails(enrichWallpaperMetadata({
+          ...result.data,
+          fromSteam: true
+        }));
+      } catch (error) {
+        console.error('Error loading Workshop wallpaper details:', error);
+      }
+    };
+
+    fetchWorkshopDetails();
+
+    return () => {
+      active = false;
+    };
+  }, [localWallpaper.publishedFileId]);
+
+  useEffect(() => {
     if (!wallpaper) return undefined;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     overlayRef.current?.scrollTo({ top: 0 });
+    applyWallpaperAccent(displayWallpaper);
 
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [wallpaper]);
+  }, [wallpaper, displayWallpaper.publishedFileId, displayWallpaper.previewUrl, displayWallpaper.title]);
 
   const videoUrl = getVideoPlaybackUrl(displayWallpaper);
   const previewUrl = getPreviewUrl(displayWallpaper);
   const isVideo = Boolean(videoUrl);
   const tags = normalizeTags(displayWallpaper);
   const progress = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
-  const authorName = displayWallpaper.author || authorInfo?.name || 'Autor';
-  const authorId = displayWallpaper.authorId || authorInfo?.id || authorName;
-  const displayAuthor = resolvedAuthor || authorName;
+  const authorName = authorInfo?.name || displayWallpaper.author || 'Autor';
+  const authorId = workshopAuthorProfile?.profile?.id || authorInfo?.id || displayWallpaper.authorId || displayWallpaper.creator || authorName;
+  const displayAuthor = authorInfo?.name || resolvedAuthor || authorName;
   const displayedAuthorWallpapers = workshopAuthorProfile?.wallpapers?.length
     ? workshopAuthorProfile.wallpapers.filter(item => item.publishedFileId !== displayWallpaper.publishedFileId)
     : authorWallpapers;
@@ -187,14 +241,14 @@ export default function WallpaperDetails({
   const handleSubscribe = () => {
     const nextSubscribed = !subscribed;
     setSubscribed(nextSubscribed);
-    onSubscribe?.(authorId, nextSubscribed);
+    onSubscribe?.(authorId, nextSubscribed, displayWallpaper);
   };
 
   const handleDownload = () => {
     onDownload?.(displayWallpaper);
     if (!isDownloaded && authorId) {
       setSubscribed(true);
-      onSubscribe?.(authorId, true);
+      onSubscribe?.(authorId, true, displayWallpaper);
     }
   };
 
@@ -422,7 +476,7 @@ export default function WallpaperDetails({
               </p>
               {onOpenAuthor && (
                 <button type="button" className="detail-author-link" onClick={handleOpenAuthor}>
-                  Perfil
+                  Perfil del autor
                 </button>
               )}
             </div>

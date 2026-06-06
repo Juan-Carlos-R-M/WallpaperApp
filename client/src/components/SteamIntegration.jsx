@@ -1328,14 +1328,14 @@ if (detailWallpaper) {
             ) : (
               <>
                 <i className="bi bi-steam"></i>
-                Steam Wallpaper Engine
+                Wallapers de Steam Workshop
               </>
             )}
           </h2>
           {!favoritesOnly && (
             <p>
               <i className="bi bi-magic"></i>
-              Descubre, previsualiza y descarga los mejores wallpapers animados de la comunidad de Wallpaper Engine.
+                Aqui puedes explorar y descargar tus wallpapers de Steam Workshop sin salir de esta app.
             </p>
           )}
         </div>
@@ -1364,13 +1364,7 @@ if (detailWallpaper) {
       {!favoritesOnly && (
         <section className="workshop-panel">
           <div className="workshop-panel-header">
-            <div>
-              <h3>
-                <i className="bi bi-shop"></i>
-                Explorar Workshop
-              </h3>
-              <p>Busca wallpapers increíbles creados por la comunidad de Wallpaper Engine.</p>
-            </div>
+           
             {/* <span className={`downloader-status ${downloaderStatus?.hasDownloader ? 'ready' : 'missing'}`}>
               <i className={`bi bi-${downloaderStatus?.hasDownloader ? 'check-circle-fill' : 'exclamation-circle-fill'}`}></i>
               {downloaderStatus?.hasDownloader ? 'Listo para descargar' : 'Descarga no configurada'}

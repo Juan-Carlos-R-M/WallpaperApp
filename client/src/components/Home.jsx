@@ -9,10 +9,10 @@ import {
   formatCompact,
   getAuthorInfo,
   getPreviewUrl,
-  getWallpaperId,
-  sortSimilarWallpapers
+  getWallpaperId
 } from '../utils/wallpaperMeta';
 import { canShowWallpaper } from '../utils/contentPreferences';
+import { applyWallpaperAccent } from '../utils/dynamicAccent';
 import {
   RECOMMENDATION_SIGNAL_EVENT,
   buildPreferenceProfile,
@@ -27,6 +27,7 @@ import {
   scoreWallpaperForProfile,
   updateAuthorSubscription
 } from '../utils/recommendationSignals';
+import { fetchOnlineRecommendations } from '../utils/workshopRecommendations';
 import '../styles/home.css';
 
 const HOME_CATEGORIES = [
@@ -56,6 +57,7 @@ export default function Home({
   const [workshopError, setWorkshopError] = useState('');
   const [downloadingId, setDownloadingId] = useState('');
   const [signalVersion, setSignalVersion] = useState(0);
+  const [onlineRelatedWallpapers, setOnlineRelatedWallpapers] = useState([]);
   const popularSectionRef = useRef(null);
   const recentSectionRef = useRef(null);
   const authorsSectionRef = useRef(null);
@@ -222,8 +224,38 @@ export default function Home({
   );
 
   const handleOpenDetails = (wallpaper) => {
-    setSelectedWallpaper(enrichWallpaperMetadata(wallpaper));
+    const enriched = enrichWallpaperMetadata(wallpaper);
+    applyWallpaperAccent(enriched);
+    setSelectedWallpaper(enriched);
   };
+
+  useEffect(() => {
+    if (!selectedWallpaper) {
+      setOnlineRelatedWallpapers([]);
+      return undefined;
+    }
+
+    let active = true;
+
+    const loadOnlineRelated = async () => {
+      const items = await fetchOnlineRecommendations({
+        wallpaper: selectedWallpaper,
+        limit: 12,
+        showMatureContent
+      });
+
+      if (active) {
+        setOnlineRelatedWallpapers(items);
+      }
+    };
+
+    setOnlineRelatedWallpapers([]);
+    loadOnlineRelated();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedWallpaper, showMatureContent]);
 
   const handleDetailNavigate = (target) => {
     setSelectedWallpaper(null);
@@ -419,7 +451,7 @@ export default function Home({
           onOpenAuthor={setSelectedAuthorId}
           onSubscribe={handleSubscribeAuthor}
           isSubscribed={isAuthorSubscribed(preferenceProfile.subscriptions[selectedWallpaper.authorId || selectedWallpaper.author])}
-          relatedWallpapers={sortSimilarWallpapers(selectedWallpaper, wallpapers).slice(0, 12)}
+          relatedWallpapers={onlineRelatedWallpapers}
           authorWallpapers={wallpapers.filter(item => item.authorId === selectedWallpaper.authorId).slice(0, 12)}
           onOpenRelated={handleOpenDetails}
           isDownloaded={Boolean(selectedWallpaper.localPath || selectedWallpaper.installed || selectedWallpaper.downloaded)}

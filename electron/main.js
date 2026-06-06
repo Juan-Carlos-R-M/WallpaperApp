@@ -567,6 +567,17 @@ ipcMain.handle('get-workshop-author-name', async (_event, publishedFileId) => {
   }
 });
 
+ipcMain.handle('get-workshop-wallpaper-details', async (_event, publishedFileId) => {
+  try {
+    const data = await workshopService.getWorkshopItemDetails(String(publishedFileId));
+    return { success: true, data };
+  } catch (error) {
+    log(`Error getting Workshop wallpaper details for ${publishedFileId}:`, error);
+    console.error('Error getting Workshop wallpaper details:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-workshop-author-profile', async (_event, authorId, options = {}) => {
   try {
     const data = await workshopService.getWorkshopAuthorProfile(String(authorId), options);
@@ -979,9 +990,16 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => log('App before quit'));
-
-app.on('before-quit', stopBundledServer);
+app.on('before-quit', () => {
+  log('App before quit - cleaning up resources');
+  // Limpiar servidor bundled
+  stopBundledServer();
+  // Destruir ventana principal
+  if (mainWindow) {
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+});
 
 app.on('activate', () => {
   if (mainWindow === null) {

@@ -1,18 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { getLocalWallpapers } from '../data/sampleWallpapers';
 import WallpaperCard from './WallpaperCard';
+import { fetchOnlineRecommendations } from '../utils/workshopRecommendations';
 import '../styles/recommended-wallpapers.css';
 
-export default function RecommendedWallpapers({ currentWallpaper, category }) {
+export default function RecommendedWallpapers({
+  currentWallpaper,
+  category,
+  showMatureContent = false,
+  onOpenDetails = () => {}
+}) {
   const [recommended, setRecommended] = useState([]);
 
   useEffect(() => {
-    if (!category) return;
+    if (!currentWallpaper && !category) {
+      setRecommended([]);
+      return undefined;
+    }
 
-    const result = getLocalWallpapers({ category, limit: 8 });
-    const filtered = result.data.filter(wp => wp._id !== currentWallpaper?._id);
-    setRecommended(filtered.slice(0, 4));
-  }, [category, currentWallpaper?._id]);
+    let active = true;
+
+    const loadRecommended = async () => {
+      const items = await fetchOnlineRecommendations({
+        wallpaper: currentWallpaper || { title: category, category, tags: [category].filter(Boolean) },
+        limit: 4,
+        showMatureContent
+      });
+
+      if (active) setRecommended(items);
+    };
+
+    setRecommended([]);
+    loadRecommended();
+
+    return () => {
+      active = false;
+    };
+  }, [category, currentWallpaper, showMatureContent]);
 
   if (recommended.length === 0) return null;
 
@@ -24,7 +47,7 @@ export default function RecommendedWallpapers({ currentWallpaper, category }) {
           <div key={wallpaper._id} className="recommended-item">
             <WallpaperCard
               wallpaper={wallpaper}
-              onOpenDetails={() => {}}
+              onOpenDetails={onOpenDetails}
             />
           </div>
         ))}

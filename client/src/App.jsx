@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { id: 'steam', label: 'Steam Wallpaper Engine', icon: 'steam' },
   { id: 'favorites', label: 'Me gusta', icon: 'heart' },
   { id: 'authors', label: 'Autores', icon: 'people' },
-  { id: 'users', label: 'Usuarios', icon: 'person-lines-fill' },
+  { id: 'users', label: 'Perfil y amigos', icon: 'people' },
   { id: 'settings', label: 'Configuracion', icon: 'gear' }
 ];
 

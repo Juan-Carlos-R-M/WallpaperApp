@@ -1,52 +1,686 @@
-.steam-users {
-  padding: 20px;
+.steam-users.social-hub {
+  display: grid;
+  gap: 18px;
+  padding: 6px 0 30px;
+}
+
+.social-hub-tabs {
+  display: inline-flex;
+  width: fit-content;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.1);
+  border-radius: 8px;
+  background: rgb(var(--color-bg-rgb) / 0.36);
+}
+
+.social-hub-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.social-hub-tabs button.active,
+.social-hub-tabs button:hover {
+  color: var(--color-text);
+  border-color: rgb(var(--color-accent-rgb) / 0.54);
+  background: rgb(var(--color-accent-rgb) / 0.2);
+  box-shadow: 0 10px 26px rgb(var(--color-accent-rgb) / 0.2);
+}
+
+.social-hub-tabs span {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-accent-hot);
+  font-size: 11px;
+}
+
+.steam-user-error,
+.steam-user-success,
+.steam-user-empty {
+  padding: 12px 14px;
+  border-radius: 7px;
+  font-weight: 750;
+}
+
+.steam-user-error {
+  color: #ffd0d0;
+  background: rgb(var(--color-danger-rgb) / 0.16);
+}
+
+.steam-user-success {
+  color: var(--color-success-soft);
+  background: rgb(var(--color-success-rgb) / 0.15);
+}
+
+.steam-user-empty {
+  color: var(--color-text-muted);
+  background: rgb(var(--color-white-rgb) / 0.05);
+}
+
+.user-profile-screen,
+.friends-screen,
+.steam-account-screen {
+  display: grid;
+  gap: 18px;
+}
+
+.user-profile-hero {
+  --profile-banner: radial-gradient(circle at 70% 20%, rgb(var(--color-accent-rgb) / 0.42), transparent 45%);
+  position: relative;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) minmax(320px, 0.72fr);
+  gap: 24px;
+  align-items: center;
+  min-height: 330px;
+  overflow: hidden;
+  padding: 34px;
+  border: 1px solid color-mix(in srgb, var(--profile-accent), transparent 62%);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgb(var(--color-bg-rgb) / 0.84), rgb(var(--color-bg-rgb) / 0.32), rgb(var(--color-bg-rgb) / 0.72)),
+    var(--profile-banner) center / cover;
+  box-shadow:
+    0 24px 80px rgb(var(--color-bg-rgb) / 0.54),
+    0 0 52px color-mix(in srgb, var(--profile-accent), transparent 76%);
+}
+
+.profile-color-orb {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: min(420px, 44vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, #fff, color-mix(in srgb, var(--profile-accent), #fff 34%) 13%, var(--profile-accent) 42%, transparent 72%);
+  filter: blur(8px);
+  opacity: 0.62;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.user-avatar-large {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 132px;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 4px solid var(--profile-accent);
+  border-radius: 50%;
+  color: var(--color-text);
+  background: linear-gradient(135deg, var(--color-bg-elevated), var(--profile-accent));
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--profile-accent), transparent 78%), 0 0 46px var(--profile-accent);
+  font-size: 42px;
+  font-weight: 950;
+}
+
+.user-avatar-large img,
+.user-wallpaper-card img,
+.user-activity-list img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-profile-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+}
+
+.user-profile-copy > span,
+.friends-header span {
+  color: var(--profile-accent);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.user-profile-copy h2,
+.friends-header h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(34px, 4vw, 60px);
+  line-height: 0.95;
+}
+
+.user-profile-copy small,
+.user-profile-copy p,
+.friends-header p {
+  margin: 0;
+  max-width: 680px;
+  color: var(--color-text-soft);
+  line-height: 1.45;
+}
+
+.user-profile-stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  overflow: hidden;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
+  border-radius: 8px;
+  background: rgb(var(--color-bg-rgb) / 0.42);
+  backdrop-filter: blur(16px);
+}
+
+.user-profile-stats span {
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  place-items: center;
+  border-right: 1px solid rgb(var(--color-white-rgb) / 0.08);
+  border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.08);
+}
+
+.user-profile-stats strong {
+  color: var(--color-text);
+  font-size: 26px;
+}
+
+.user-profile-stats small {
+  color: var(--color-text-muted);
+}
+
+.user-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+  align-items: start;
+}
+
+.user-profile-main {
+  display: grid;
+  gap: 18px;
+}
+
+.user-section-panel,
+.profile-editor-panel,
+.friends-list-panel,
+.friend-detail-panel,
+.friends-side-panel section,
+.steam-users-header,
+.steam-user-list,
+.steam-user-form {
+  border: 1px solid rgb(var(--color-white-rgb) / 0.1);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 82% 8%, rgb(var(--color-accent-rgb) / 0.16), transparent 34%),
+    rgb(var(--color-bg-rgb) / 0.34);
+  box-shadow: 0 18px 60px rgb(var(--color-bg-rgb) / 0.34);
+}
+
+.user-section-panel,
+.profile-editor-panel,
+.friends-list-panel,
+.friend-detail-panel,
+.friends-side-panel section {
+  padding: 18px;
+}
+
+.user-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.user-section-title h3,
+.profile-editor-panel h3,
+.friends-side-panel h3,
+.steam-users-header h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 18px;
+}
+
+.user-section-title button,
+.profile-save-btn,
+.friends-header button,
+.friend-actions button,
+.steam-users-header button,
+.steam-user-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--profile-accent, var(--color-accent-hot)), transparent 52%);
+  border-radius: 7px;
+  color: var(--color-text);
+  background: linear-gradient(135deg, var(--profile-accent, var(--color-accent-hot)), var(--color-accent-strong));
+  cursor: pointer;
+  font-weight: 900;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--profile-accent, var(--color-accent-hot)), transparent 78%);
+}
+
+.user-wallpaper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.user-wallpaper-card {
+  position: relative;
+  display: grid;
+  align-content: end;
+  min-height: 188px;
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.1);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+}
+
+.user-wallpaper-card::after {
+  content: '';
+  position: absolute;
+  inset: 35% 0 0;
+  background: linear-gradient(180deg, transparent, rgb(var(--color-bg-rgb) / 0.9));
+}
+
+.user-wallpaper-card img {
+  position: absolute;
+  inset: 0;
+}
+
+.user-wallpaper-card span,
+.user-wallpaper-card strong,
+.user-wallpaper-card small {
+  position: relative;
+  z-index: 1;
+}
+
+.user-wallpaper-card span {
+  justify-self: start;
+  margin-bottom: 48px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--color-text);
+  background: var(--profile-accent, var(--color-accent-hot));
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.user-wallpaper-card strong {
+  color: var(--color-text);
+}
+
+.user-wallpaper-card small {
+  display: flex;
+  gap: 10px;
+  color: var(--color-text-soft);
+}
+
+.user-empty-panel {
+  display: grid;
+  min-height: 170px;
+  place-items: center;
+  color: var(--color-text-muted);
+  border: 1px dashed rgb(var(--color-white-rgb) / 0.16);
+  border-radius: 8px;
+}
+
+.user-empty-panel i {
+  color: var(--profile-accent);
+  font-size: 32px;
+}
+
+.user-activity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.user-activity-list article {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 70px;
+  padding: 8px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.08);
+  border-radius: 7px;
+  background: rgb(var(--color-white-rgb) / 0.035);
+}
+
+.user-activity-list img {
+  height: 54px;
+  border-radius: 7px;
+}
+
+.user-activity-list span {
+  display: grid;
+  gap: 4px;
+}
+
+.user-activity-list strong {
+  color: var(--color-text);
+}
+
+.user-activity-list small {
+  color: var(--color-text-muted);
+}
+
+.profile-editor-panel {
+  position: sticky;
+  top: 92px;
+}
+
+.profile-editor-panel form,
+.steam-user-form {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-editor-panel label,
+.steam-user-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profile-editor-panel input,
+.profile-editor-panel textarea,
+.friends-header input,
+.friends-list-panel input,
+.steam-user-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
+  border-radius: 7px;
+  color: var(--color-text);
+  background: rgb(var(--color-bg-rgb) / 0.38);
+  outline: 0;
+}
+
+.profile-editor-panel textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.profile-editor-panel input:focus,
+.profile-editor-panel textarea:focus,
+.friends-header input:focus,
+.friends-list-panel input:focus,
+.steam-user-form input:focus {
+  border-color: var(--draft-accent, var(--color-accent-hot));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--draft-accent, var(--color-accent-hot)), transparent 78%);
+}
+
+.profile-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profile-color-picker span {
+  flex: 1;
+}
+
+.profile-color-picker button {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+  box-shadow: 0 0 18px var(--swatch);
+}
+
+.profile-color-picker button.active {
+  border-color: var(--color-text);
+}
+
+.profile-toggle-row {
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+}
+
+.profile-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--draft-accent);
+}
+
+.friends-header {
+  display: grid;
+  grid-template-columns: 1fr minmax(300px, 460px);
+  gap: 18px;
+  align-items: end;
+  padding: 20px 6px 8px;
+}
+
+.friends-header form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.friends-layout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.friends-list-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.friends-list {
+  display: grid;
+  max-height: 720px;
+  overflow: auto;
+}
+
+.friends-list button {
+  display: grid;
+  grid-template-columns: 48px 1fr 80px;
+  gap: 8px 12px;
+  align-items: center;
+  min-height: 82px;
+  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.07);
+  color: var(--color-text);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.friends-list button.active,
+.friends-list button:hover {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--friend-accent), transparent 76%), transparent);
+}
+
+.friends-list button > span,
+.friends-side-panel article > span,
+.friend-avatar {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-text);
+  background: linear-gradient(135deg, var(--friend-accent, var(--color-accent-hot)), var(--color-bg-avatar));
+  font-weight: 950;
+}
+
+.friends-list button > span {
+  width: 48px;
+  height: 48px;
+  grid-row: span 2;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--friend-accent), transparent 42%);
+}
+
+.friends-list strong,
+.friends-side-panel strong {
+  color: var(--color-text);
+}
+
+.friends-list small {
+  justify-self: end;
+  color: var(--friend-accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.friends-list em {
+  grid-column: 2 / -1;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.friend-detail-panel {
+  display: grid;
+  gap: 18px;
+  background:
+    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--friend-accent), transparent 68%), transparent 34%),
+    rgb(var(--color-bg-rgb) / 0.35);
+}
+
+.friend-hero-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 104px 1fr auto;
+  gap: 18px;
+  align-items: center;
+  min-height: 250px;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid color-mix(in srgb, var(--friend-accent), transparent 58%);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgb(var(--color-bg-rgb) / 0.74), color-mix(in srgb, var(--friend-accent), transparent 82%));
+}
+
+.friend-orb {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 330px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 5%, var(--friend-accent) 30%, transparent 68%);
+  filter: blur(12px);
+  opacity: 0.55;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+}
+
+.friend-avatar {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border: 3px solid var(--friend-accent);
+  box-shadow: 0 0 42px color-mix(in srgb, var(--friend-accent), transparent 20%);
+  font-size: 28px;
+}
+
+.friend-hero-card h3 {
+  margin: 0 0 6px;
+  color: var(--color-text);
+  font-size: 34px;
+}
+
+.friend-hero-card p,
+.friend-hero-card span {
+  margin: 0;
+  color: var(--color-text-soft);
+}
+
+.friend-actions {
+  display: flex;
+  gap: 10px;
+  position: relative;
+}
+
+.friend-wallpapers,
+.friend-activity {
+  padding-top: 6px;
+}
+
+.friends-side-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.friends-side-panel section {
+  display: grid;
+  gap: 12px;
+}
+
+.friends-side-panel article {
+  display: grid;
+  grid-template-columns: 44px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.friends-side-panel article > span {
+  width: 44px;
+  height: 44px;
+}
+
+.friends-side-panel small {
+  color: var(--color-text-muted);
+}
+
+.friends-side-panel article button {
+  min-width: 36px;
+  min-height: 34px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
+  border-radius: 7px;
+  color: var(--color-text);
+  background: rgb(var(--color-white-rgb) / 0.04);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.friends-side-panel article button:hover {
+  border-color: var(--color-accent-hot);
+  color: var(--color-accent-hot);
 }
 
 .steam-users-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid rgba(0, 123, 255, 0.3);
-}
-
-.steam-users-header h2 {
-  margin: 0 0 6px;
-  color: var(--text-light);
-  font-size: 24px;
+  padding: 18px;
 }
 
 .steam-users-header p {
-  margin: 0;
-  color: var(--text-lighter);
-  font-size: 13px;
-}
-
-.steam-users-header button,
-.steam-user-actions button {
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
-  border-radius: 6px;
-  color: var(--text-light);
-  background: rgba(0, 123, 255, 0.18);
-  cursor: pointer;
-  font-weight: 700;
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
 }
 
 .steam-users-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 16px;
-}
-
-.steam-user-list,
-.steam-user-form {
-  border: 1px solid rgb(var(--color-white-rgb) / 0.08);
-  border-radius: 8px;
-  background: rgb(var(--color-white-rgb) / 0.025);
 }
 
 .steam-user-list {
@@ -61,7 +695,7 @@
   padding: 12px;
   border: 0;
   border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.06);
-  color: var(--text-light);
+  color: var(--color-text);
   text-align: left;
   background: transparent;
   cursor: pointer;
@@ -69,36 +703,17 @@
 
 .steam-user-row:hover,
 .steam-user-row.active {
-  background: rgba(0, 123, 255, 0.12);
+  background: rgb(var(--color-accent-rgb) / 0.16);
 }
 
 .steam-user-row span,
 .steam-user-row small {
-  color: var(--text-lighter);
+  color: var(--color-text-muted);
   font-size: 12px;
 }
 
 .steam-user-form {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-}
-
-.steam-user-form label {
-  display: grid;
-  gap: 6px;
-  color: var(--text-lighter);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.steam-user-form input {
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid rgb(var(--color-white-rgb) / 0.12);
-  border-radius: 6px;
-  color: var(--text-light);
-  background: rgb(var(--color-bg-rgb) / 0.28);
+  padding: 18px;
 }
 
 .steam-user-actions {
@@ -111,33 +726,34 @@
   cursor: not-allowed;
 }
 
-.steam-user-error,
-.steam-user-success,
-.steam-user-empty {
-  margin-bottom: 14px;
-  padding: 12px;
-  border-radius: 6px;
-}
-
-.steam-user-error {
-  color: #ffb5b5;
-  background: rgba(220, 53, 69, 0.12);
-}
-
-.steam-user-success {
-  color: #b7f7c1;
-  background: rgba(40, 167, 69, 0.12);
-}
-
-.steam-user-empty {
-  color: var(--text-lighter);
-  background: rgba(0, 123, 255, 0.1);
-}
-
-@media (max-width: 860px) {
-  .steam-users-header,
-  .steam-users-layout {
+@media (max-width: 1180px) {
+  .user-profile-hero,
+  .user-profile-layout,
+  .friends-layout {
     grid-template-columns: 1fr;
-    flex-direction: column;
+  }
+
+  .profile-editor-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .social-hub-tabs,
+  .friends-header form,
+  .steam-users-layout {
+    width: 100%;
+    grid-template-columns: 1fr;
+    flex-wrap: wrap;
+  }
+
+  .user-profile-hero,
+  .friends-header,
+  .friend-hero-card {
+    grid-template-columns: 1fr;
+  }
+
+  .user-wallpaper-grid {
+    grid-template-columns: 1fr;
   }
 }

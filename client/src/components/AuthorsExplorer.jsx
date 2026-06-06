@@ -182,6 +182,9 @@ export default function AuthorsExplorer({ searchQuery = '', showMatureContent = 
   const [sortBy, setSortBy] = useState('recommended');
   const [viewMode, setViewMode] = useState('grid');
   const [favoriteSignals, setFavoriteSignals] = useState(loadFavoriteWallpapers);
+  const workshopAvailable = typeof window !== 'undefined'
+    && window.electronAPI
+    && typeof window.electronAPI.searchWorkshopWallpapers === 'function';
 
   const localWallpapers = useMemo(() => (
     getLocalWallpapers({ limit: 120 }).data.map(enrichWallpaperMetadata)
@@ -202,7 +205,7 @@ export default function AuthorsExplorer({ searchQuery = '', showMatureContent = 
   }, []);
 
   useEffect(() => {
-    if (!window.electronAPI?.searchWorkshopWallpapers) return undefined;
+    if (!workshopAvailable) return undefined;
 
     let active = true;
 
@@ -215,7 +218,7 @@ export default function AuthorsExplorer({ searchQuery = '', showMatureContent = 
           limit: 60,
           sort: 'trend',
           time: 'all',
-          requiredTags: []
+          requiredTags: activeTab === 'mature' ? ['Mature'] : []
         });
 
         if (!active || !result?.success) return;
@@ -234,13 +237,13 @@ export default function AuthorsExplorer({ searchQuery = '', showMatureContent = 
     return () => {
       active = false;
     };
-  }, [searchQuery]);
+  }, [activeTab, searchQuery, workshopAvailable]);
 
   const allWallpapers = useMemo(() => (
-    [...workshopWallpapers, ...localWallpapers]
+    [...workshopWallpapers, ...(workshopAvailable ? [] : localWallpapers)]
       .map(enrichWallpaperMetadata)
       .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent))
-  ), [localWallpapers, showMatureContent, workshopWallpapers]);
+  ), [localWallpapers, showMatureContent, workshopAvailable, workshopWallpapers]);
 
   const allAuthors = useMemo(() => (
     buildAuthors(allWallpapers, subscriptions)

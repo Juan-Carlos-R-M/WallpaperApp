@@ -147,6 +147,11 @@ class WorkshopService {
     }
   }
 
+  async getWorkshopItemDetails(publishedFileId) {
+    const [item] = await this.getWorkshopItemsByIds([publishedFileId]);
+    return item || null;
+  }
+
   async getWorkshopAuthorProfile(authorId, { limit = 24 } = {}) {
     const profile = await this.resolveWorkshopAuthorProfile(authorId);
     const wallpapers = await this.getWorkshopItemsByAuthor(authorId, { limit });

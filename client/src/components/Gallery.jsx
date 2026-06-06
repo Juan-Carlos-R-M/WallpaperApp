@@ -14,10 +14,16 @@ import {
   getAuthorWallpapers,
   getPreviewUrl,
   getWallpaperId,
-  isDownloadedWallpaper,
-  sortSimilarWallpapers
+  isDownloadedWallpaper
 } from '../utils/wallpaperMeta';
 import { canShowWallpaper } from '../utils/contentPreferences';
+import { applyWallpaperAccent } from '../utils/dynamicAccent';
+import {
+  buildAuthorSubscriptionRecord,
+  isAuthorSubscribed,
+  updateAuthorSubscription
+} from '../utils/recommendationSignals';
+import { fetchOnlineRecommendations } from '../utils/workshopRecommendations';
 import '../styles/gallery.css';
 
 const PAGE_SIZE = 24;
@@ -39,6 +45,7 @@ const Gallery = ({
   const [favorites, setFavorites] = useState([]);
   const [activeFeed, setActiveFeed] = useState(initialFeed);
   const [viewMode, setViewMode] = useState('grid');
+  const [onlineRelatedWallpapers, setOnlineRelatedWallpapers] = useState([]);
   const observerTarget = useRef(null);
 
   useEffect(() => {
@@ -57,10 +64,15 @@ const Gallery = ({
     setActiveFeed(initialFeed || 'recent');
   }, [initialFeed]);
 
-  const handleSubscribe = useCallback((authorId, isSubscribed) => {
+  const handleSubscribe = useCallback((authorId, isSubscribed, wallpaper = null) => {
     if (!authorId) return;
     setSubscriptions(prev => {
-      const updated = { ...prev, [authorId]: isSubscribed };
+      const updated = updateAuthorSubscription(
+        prev,
+        authorId,
+        isSubscribed,
+        wallpaper ? buildAuthorSubscriptionRecord(wallpaper, 'manual') : { source: 'manual' }
+      );
       localStorage.setItem('wallpaperApp.subscriptions', JSON.stringify(updated));
       return updated;
     });
@@ -217,7 +229,9 @@ const Gallery = ({
   }, [fetchWallpapers, page, hasMore, loading]);
 
   const handleOpenDetails = (wallpaper) => {
-    setSelectedWallpaper(enrichWallpaperMetadata(wallpaper));
+    const enriched = enrichWallpaperMetadata(wallpaper);
+    applyWallpaperAccent(enriched);
+    setSelectedWallpaper(enriched);
   };
 
   const handleOpenAuthor = (authorId) => {
@@ -273,13 +287,37 @@ const Gallery = ({
     });
   };
 
-  const getRelatedWallpapers = useCallback((currentWallpaper) => (
-    sortSimilarWallpapers(currentWallpaper, wallpapers).slice(0, 12)
-  ), [wallpapers]);
-
   const getMoreFromAuthor = useCallback((currentWallpaper) => (
     getAuthorWallpapers(currentWallpaper, wallpapers).slice(0, 12)
   ), [wallpapers]);
+
+  useEffect(() => {
+    if (!selectedWallpaper) {
+      setOnlineRelatedWallpapers([]);
+      return undefined;
+    }
+
+    let active = true;
+
+    const loadOnlineRelated = async () => {
+      const items = await fetchOnlineRecommendations({
+        wallpaper: selectedWallpaper,
+        limit: 12,
+        showMatureContent
+      });
+
+      if (active) {
+        setOnlineRelatedWallpapers(items);
+      }
+    };
+
+    setOnlineRelatedWallpapers([]);
+    loadOnlineRelated();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedWallpaper, showMatureContent]);
 
   const galleryStats = useMemo(() => {
     const totals = wallpapers.reduce((acc, wallpaper) => ({
@@ -354,7 +392,7 @@ const Gallery = ({
   }
 
   if (selectedWallpaper) {
-    const relatedWallpapers = getRelatedWallpapers(selectedWallpaper);
+    const relatedWallpapers = onlineRelatedWallpapers;
     const directAuthorWallpapers = getMoreFromAuthor(selectedWallpaper);
     const authorWallpapers = directAuthorWallpapers.length > 0
       ? directAuthorWallpapers
@@ -378,7 +416,7 @@ const Gallery = ({
           onSubscribe={handleSubscribe}
           isDownloaded={isWallpaperDownloaded}
           isFavorite={isFavorite(selectedWallpaper)}
-          isSubscribed={Boolean(subscriptions[selectedWallpaper.authorId])}
+          isSubscribed={isAuthorSubscribed(subscriptions[selectedWallpaper.authorId])}
           repairing={false}
           deleting={false}
           downloaderReady={true}
