@@ -1805,25 +1805,8 @@
   place-items: center;
   color: var(--text-lighter);
   padding: var(--spacing-xl);
-}
-
-.workshop-loader button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
-  border: 1px solid rgb(var(--color-accent-rgb) / 0.38);
-  border-radius: 7px;
-  color: var(--color-text);
-  background: rgb(var(--color-accent-rgb) / 0.12);
-  cursor: pointer;
-  font-weight: 800;
-}
-
-.workshop-loader button:hover {
-  border-color: rgb(var(--color-accent-rgb) / 0.62);
-  background: rgb(var(--color-accent-rgb) / 0.2);
+  font-size: 13px;
+  letter-spacing: 0.2px;
 }
 
 .app-notification-stack {

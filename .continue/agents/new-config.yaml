@@ -1,0 +1,30 @@
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+export const wallpapersUrl = (path = '') => `${API_BASE_URL}/wallpapers${path}`;
+
+export const isElectronApp = () => {
+  return window.electronAPI !== undefined;
+};
+
+export const getApiConfig = () => {
+  if (isElectronApp()) {
+    return {
+      type: 'electron',
+      description: 'Usando almacenamiento local de Electron'
+    };
+  }
+  
+  return {
+    type: 'http',
+    baseUrl: API_BASE_URL,
+    description: 'Usando API HTTP'
+  };
+};
+
+// UN SOLO export default para todo el archivo
+export default {
+  API_BASE_URL,
+  wallpapersUrl,
+  isElectronApp,
+  getApiConfig
+};

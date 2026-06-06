@@ -705,7 +705,18 @@ class WorkshopService {
   getText(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
       const requestUrl = this.normalizeSteamUrl(url);
-      https.get(requestUrl, { headers: this.requestHeaders() }, res => {
+      const timeoutMs = Number(process.env.WALLPAPER_APP_HTTP_TIMEOUT_MS) || 20000;
+      let settled = false;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(value);
+      };
+      const timer = setTimeout(() => {
+        request.destroy(new Error(`Steam Community no respondio en ${timeoutMs}ms (${requestUrl})`));
+      }, timeoutMs);
+      const request = https.get(requestUrl, { headers: this.requestHeaders() }, res => {
         let body = '';
 
         if (this.isRedirect(res.statusCode)) {
@@ -713,17 +724,20 @@ class WorkshopService {
           res.resume();
 
           if (!redirectUrl) {
-            reject(new Error(`Steam Community redirigio sin ubicacion (${res.statusCode})`));
+            finish(reject, new Error(`Steam Community redirigio sin ubicacion (${res.statusCode})`));
             return;
           }
 
           if (redirectCount >= MAX_REDIRECTS) {
-            reject(new Error(`Steam Community redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
+            finish(reject, new Error(`Steam Community redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
             return;
           }
 
           this.logger(`Steam Community redirect ${res.statusCode}: ${requestUrl} -> ${redirectUrl}`);
-          this.getText(redirectUrl, redirectCount + 1).then(resolve, reject);
+          this.getText(redirectUrl, redirectCount + 1).then(
+            value => finish(resolve, value),
+            error => finish(reject, error)
+          );
           return;
         }
 
@@ -733,13 +747,13 @@ class WorkshopService {
 
         res.on('end', () => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`Steam Community respondio ${res.statusCode}`));
+            finish(reject, new Error(`Steam Community respondio ${res.statusCode}`));
             return;
           }
 
-          resolve(body);
+          finish(resolve, body);
         });
-      }).on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
+      }).on('error', error => finish(reject, this.friendlyNetworkError(error, requestUrl)));
     });
   }
 

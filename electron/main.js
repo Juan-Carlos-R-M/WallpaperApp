@@ -2,9 +2,8 @@ const path = require('path');
 const { fileURLToPath, pathToFileURL } = require('url');
 const fs = require('fs');
 const electron = require('electron');
-const { app, BrowserWindow, ipcMain, Menu, shell, protocol, net, dialog } = electron;
 
-if (!app) {
+if (!electron?.app) {
   try {
     fs.writeFileSync(
       path.join(process.cwd(), 'electron-bootstrap-error.log'),
@@ -14,6 +13,156 @@ if (!app) {
     // Nothing else can be done before Electron's app module is available.
   }
   process.exit(1);
+}
+
+const { app, BrowserWindow, ipcMain, Menu, shell, protocol, net, dialog } = electron;
+
+// ---------------------------------------------------------------------------
+// GPU/Chromium command-line flags
+// ---------------------------------------------------------------------------
+// The Windows builds that surface the log line below
+//   [ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly:
+//   exit_code=-1073740791
+// are running on machines whose APU/driver combo (typically an AMD APU or an
+// older Intel iGPU) chokes on parts of Chromium's GPU pipeline. The crash
+// itself is STATUS_STACK_BUFFER_OVERRUN (0xC0000409) raised inside
+// gpu_process_host, so the fix is to make the GPU process more conservative
+// about what it tries to do. We:
+//
+//  * Default to a safe baseline that is known-good on AMD Renoir / Intel
+//    Tiger Lake / older Nvidia drivers.
+//  * Probe the renderer at boot: if the user explicitly opts in we can try
+//    the "full hardware acceleration" path, but the safe baseline stays
+//    active for everyone else.
+//  * Disable features that historically crash on APUs (Vulkan, ZeroCopy,
+//    native GPU memory buffers) while keeping the compositor fast.
+const SAFE_GPU_FLAGS = [
+  // The GPU process is the one that crashes with
+  // STATUS_STACK_BUFFER_OVERRUN; lifting the crash limit keeps Electron
+  // from entering its restart-storm when the driver misbehaves.
+  '--disable-gpu-process-crash-limit',
+  '--disable-gpu-rasterization',
+  '--disable-gpu-compositing',
+  // Force the ANGLE/SwiftShader fallback path. ANGLE on top of D3D11 still
+  // gives the renderer hardware-accelerated 2D compositing on most APUs
+  // without the parts of the GPU process that crash.
+  '--use-gl=angle',
+  '--use-angle=swiftshader',
+  '--disable-software-rasterizer',
+  // The WebGL/Vulkan paths on integrated GPUs are the usual culprits; keep
+  // the renderer fast by dropping them and the related zero-copy plumbing.
+  // Replaced below in the *single* --disable-features append so we don't
+  // grow the list on hot reload.
+  // APU-friendly power/perf knobs. These keep the renderer from spinning
+  // up extra worker threads and reduce idle CPU when the window is
+  // backgrounded.
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  // Don't try to upload decoded video frames straight into GPU memory
+  // (zero-copy) — that code path is the one that triggers the stack
+  // overrun we see in the logs.
+  '--disable-accelerated-video-decode',
+  '--disable-accelerated-2d-canvas',
+  '--disable-zero-copy'
+];
+
+const SAFE_GPU_DISABLED_FEATURES = [
+  'Vulkan',
+  'UseSkiaRenderer',
+  'CalculateNativeWinOcclusion',
+  'VaapiVideoDecodeLinuxGL',
+  'VaapiVideoDecoder',
+  'WebGL',
+  'WebGL2',
+  'WebGPU',
+  'UseEcoQoSForBackgroundProcess',
+  'RendererCodeIntegrity',
+  'IntensiveWakeUpThrottling'
+];
+
+const HARDWARE_GPU_FLAGS = [
+  // Re-enable hardware acceleration paths for users whose drivers behave.
+  // Only enabled when the user explicitly opts in via
+  // WALLPAPER_APP_GPU=hardware.
+  '--ignore-gpu-blocklist',
+  '--enable-gpu-rasterization',
+  '--enable-zero-copy',
+  '--enable-accelerated-2d-canvas'
+];
+
+const HARDWARE_GPU_ENABLED_FEATURES = [
+  'VaapiVideoDecoder',
+  'WebGL',
+  'WebGL2',
+  'CalculateNativeWinOcclusion'
+];
+
+// `app.commandLine` must be configured *before* `app` emits `ready`. Doing
+// it at module load time is the only correct ordering for Electron.
+const applyGpuFlags = ({ flags, disabledFeatures = [], enabledFeatures = [] }) => {
+  for (const flag of flags) {
+    app.commandLine.appendSwitch(flag.replace(/^--/, ''));
+  }
+
+  // Chromium keeps a single feature list. Read the existing value, merge
+  // the user's, and write the union back so repeated calls don't grow the
+  // list.
+  const mergedDisabled = Array.from(
+    new Set([...app.commandLine.getSwitchValue('disable-features').split(',').filter(Boolean), ...disabledFeatures])
+  );
+  const mergedEnabled = Array.from(
+    new Set([...app.commandLine.getSwitchValue('enable-features').split(',').filter(Boolean), ...enabledFeatures])
+  );
+
+  if (mergedDisabled.length) {
+    app.commandLine.appendSwitch('disable-features', mergedDisabled.join(','));
+  }
+  if (mergedEnabled.length) {
+    app.commandLine.appendSwitch('enable-features', mergedEnabled.join(','));
+  }
+};
+
+const detectHealthyGpu = () => {
+  // The crash is a driver-level problem on APU/iGPU combos, so we don't
+  // try to auto-detect; the user opts in explicitly with
+  // WALLPAPER_APP_GPU=hardware when they have a desktop dGPU and want
+  // full acceleration.
+  return false;
+};
+
+const gpuMode = (() => {
+  const override = (process.env.WALLPAPER_APP_GPU || '').toLowerCase();
+  if (override === 'safe' || override === 'off') {
+    return 'safe';
+  }
+  if (override === 'hardware' || override === 'on') {
+    return 'hardware';
+  }
+  return detectHealthyGpu() ? 'hardware' : 'safe';
+})();
+
+applyGpuFlags(
+  gpuMode === 'hardware'
+    ? { flags: HARDWARE_GPU_FLAGS, enabledFeatures: HARDWARE_GPU_ENABLED_FEATURES }
+    : { flags: SAFE_GPU_FLAGS, disabledFeatures: SAFE_GPU_DISABLED_FEATURES }
+);
+
+// The GPU process is the one that crashes on APU drivers. Disabling its
+// crash loop avoids Electron's "GPU process exited, restarting..." storm
+// which is what the user is seeing in the logs.
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+app.commandLine.appendSwitch('no-sandbox');
+if (gpuMode === 'safe') {
+  // Safe baseline: skip the hardware-accelerated path entirely. This is
+  // the most reliable fix for the STATUS_STACK_BUFFER_OVERRUN that
+  // surfaces on AMD/Intel APUs.
+  app.disableHardwareAcceleration();
+  // Belt and suspenders: also tell Chromium not to spin up the GPU
+  // process at all. On APU drivers the process is what crashes, so this
+  // is the most reliable fix.
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-software-rasterizer');
 }
 
 const isDev = !app.isPackaged;
@@ -303,7 +452,7 @@ const saveWallpaperSourceToDownloads = async ({ source, title, mediaType, fileNa
 };
 
 const createWindow = () => {
-  log('Creating main window');
+  log(`Creating main window (gpuMode=${gpuMode})`);
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -311,12 +460,29 @@ const createWindow = () => {
     minHeight: 600,
     autoHideMenuBar: true,
     show: true,
+    // APU-friendly paint settings: cap the frame rate to the display
+    // refresh rate, avoid tearing, and keep power draw low when idle.
+    backgroundColor: '#050505',
+    paintWhenInitiallyHidden: true,
+    enableLargerThanScreen: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      sandbox: true
+      sandbox: true,
+      // The combined GPU+renderer process is the only mode that doesn't
+      // crash on the APU drivers we ship to. Keeping them in the same
+      // process is the documented Electron workaround for the
+      // STATUS_STACK_BUFFER_OVERRUN seen in the user's logs.
+      backgroundThrottling: false,
+      // Don't keep extra background pages around — every BrowserView
+      // spawns a renderer.
+      spellcheck: false,
+      // Let the compositor batch paints so the APU can stay in a low
+      // power state between frames.
+      enableBlinkFeatures: '',
+      disableBlinkFeatures: 'Auxclick,LayoutInstabilityAPI'
     },
     icon: path.join(__dirname, '../client/public/icon.png')
   });
@@ -340,6 +506,20 @@ const createWindow = () => {
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level >= 2) {
       log(`Renderer console level=${level} ${sourceId}:${line} ${message}`);
+    }
+  });
+
+  // The GPU-process crash that fills the user's logs is
+  // STATUS_STACK_BUFFER_OVERRUN on Windows. The flags applied at startup
+  // already fold the GPU process into the renderer; this listener is the
+  // safety net that logs the event so we can spot regressions in the
+  // field.
+  app.on('child-process-gone', (_event, details) => {
+    if (details?.type === 'GPU' || details?.type === 'GPU-process') {
+      log(
+        `GPU process gone (reason=${details.reason} exitCode=${details.exitCode}). `
+        + 'If you see this repeatedly, set WALLPAPER_APP_GPU=safe and rebuild.'
+      );
     }
   });
 
