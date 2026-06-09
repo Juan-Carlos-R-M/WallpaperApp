@@ -7,9 +7,10 @@ import {
   getAuthorInfo,
   getAuthorKey,
   getAuthorName,
-  getPreviewUrl
+  getPreviewUrl,
+  getSteamWorkshopAuthorUrl
 } from '../utils/wallpaperMeta';
-import { isAuthorSubscribed } from '../utils/recommendationSignals';
+import { isAuthorSubscribed, saveAuthorProfileInfo } from '../utils/recommendationSignals';
 import '../styles/author-profile.css';
 
 export default function AuthorProfile({
@@ -57,11 +58,17 @@ export default function AuthorProfile({
           throw new Error(result?.error || 'No se pudo cargar el autor.');
         }
 
-        setWorkshopProfile(result.data?.profile || null);
+        const profile = result.data?.profile || null;
+        setWorkshopProfile(profile);
         setWorkshopWallpapers((result.data?.wallpapers || []).map(item => enrichWallpaperMetadata({
           ...item,
           fromSteam: true
         })));
+
+        // Guardar la información del perfil del autor para que se use después
+        if (profile && profile.id) {
+          saveAuthorProfileInfo(profile.id, profile);
+        }
       } catch (error) {
         if (!active) return;
         setWorkshopProfile(null);
@@ -205,6 +212,18 @@ export default function AuthorProfile({
                 <i className={`bi bi-person-${isSubscribed ? 'check-fill' : 'plus'}`}></i>
                 {isSubscribed ? 'Siguiendo' : 'Seguir'}
               </button>
+              {profileId && /^\d+$/.test(String(profileId)) && (
+                <a
+                  href={getSteamWorkshopAuthorUrl(profileId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="author-steam-btn"
+                  title="Ver en Steam"
+                >
+                  <i className="bi bi-steam"></i>
+                  Canal Steam
+                </a>
+              )}
               <button type="button" className="author-message-btn">
                 <i className="bi bi-chat-left-text"></i>
                 Mensaje

@@ -9,11 +9,16 @@ import {
   getAuthorInfo,
   getPreviewUrl,
   getVideoPlaybackUrl,
-  normalizeTags
+  normalizeTags,
+  extractDescriptionLinks,
+  cleanDescriptionText,
+  getSteamAuthorProfileUrl,
+  getSteamWorkshopAuthorUrl,
+  normalizeWallpaperItem
 } from '../utils/wallpaperMeta';
 import { applyWallpaperAccent } from '../utils/dynamicAccent';
 import '../styles/steam-integration.css';
-import 'bootstrap-icons/font/bootstrap-icons.css';
+
 
 export default function WallpaperDetails({
   wallpaper,
@@ -22,10 +27,12 @@ export default function WallpaperDetails({
   onNavigate,
   onDownload,
   onDelete,
+  onRepair,
   onToggleFavorite,
   onOpenAuthor,
   onSubscribe,
   isDownloaded = false,
+  isIncomplete = false,
   isFavorite = false,
   isSubscribed = false,
   repairing = false,
@@ -96,9 +103,19 @@ export default function WallpaperDetails({
 
     const fetchAuthorProfile = async () => {
       try {
-        const result = await window.electronAPI.getWorkshopAuthorProfile(authorId, { limit: 12 });
+        const result = await window.electronAPI.getWorkshopAuthorProfile(authorId, { limit: 50 });
         if (!active || !result?.success) return;
-        setWorkshopAuthorProfile(result.data || null);
+        
+        // Normalizar todos los wallpapers del autor
+        const normalizedData = {
+          ...result.data,
+          wallpapers: (Array.isArray(result.data?.wallpapers) ? result.data.wallpapers : [])
+            .map(w => normalizeWallpaperItem(w))
+            .filter(w => Boolean(w?.publishedFileId || w?.title)) // Filtrar solo los que tienen datos
+        };
+        
+        console.log('✅ Wallpapers del autor cargados:', normalizedData.wallpapers?.length || 0);
+        setWorkshopAuthorProfile(normalizedData || null);
       } catch (error) {
         console.error('Error loading Workshop author profile:', error);
       }
@@ -115,27 +132,61 @@ export default function WallpaperDetails({
     setWorkshopWallpaperDetails(null);
 
     const publishedFileId = localWallpaper.publishedFileId;
+    
+    // Check if we already have sufficient data from the search results
+    const hasEnoughData = Boolean(
+      localWallpaper?.description?.length > 10 &&
+      Array.isArray(localWallpaper?.tags) &&
+      localWallpaper?.tags?.length > 0
+    );
+    
     const shouldFetchDetails = Boolean(
       publishedFileId
       && /^\d+$/.test(String(publishedFileId))
+      && !hasEnoughData
       && window?.electronAPI
       && typeof window.electronAPI.getWorkshopWallpaperDetails === 'function'
     );
 
-    if (!shouldFetchDetails) return undefined;
+    if (!shouldFetchDetails) {
+      console.log(`[WallpaperDetails] ⏭️ Skipping details fetch: publishedFileId=${publishedFileId}, hasEnoughData=${hasEnoughData}`);
+      return undefined;
+    }
 
     let active = true;
 
     const fetchWorkshopDetails = async () => {
       try {
+        console.log(`[WallpaperDetails] 🔄 Fetching details for publishedFileId: ${publishedFileId}`);
         const result = await window.electronAPI.getWorkshopWallpaperDetails(publishedFileId);
-        if (!active || !result?.success || !result.data) return;
+        
+        if (!active) {
+          console.log(`[WallpaperDetails] ⚠️ Fetch cancelled (component unmounted)`);
+          return;
+        }
+        
+        if (!result) {
+          console.error(`[WallpaperDetails] ❌ No result from getWorkshopWallpaperDetails`);
+          return;
+        }
+        
+        if (!result.success) {
+          console.error(`[WallpaperDetails] ❌ Fetch failed: ${result.error}`);
+          return;
+        }
+        
+        if (!result.data) {
+          console.warn(`[WallpaperDetails] ⚠️ Fetch succeeded but returned no data`);
+          return;
+        }
+        
+        console.log(`[WallpaperDetails] ✅ Successfully loaded details for ${publishedFileId}`);
         setWorkshopWallpaperDetails(enrichWallpaperMetadata({
           ...result.data,
           fromSteam: true
         }));
       } catch (error) {
-        console.error('Error loading Workshop wallpaper details:', error);
+        console.error(`[WallpaperDetails] ❌ Exception loading Workshop wallpaper details: ${error.message}`, error);
       }
     };
 
@@ -167,9 +218,27 @@ export default function WallpaperDetails({
   const authorName = authorInfo?.name || displayWallpaper.author || 'Autor';
   const authorId = workshopAuthorProfile?.profile?.id || authorInfo?.id || displayWallpaper.authorId || displayWallpaper.creator || authorName;
   const displayAuthor = authorInfo?.name || resolvedAuthor || authorName;
-  const displayedAuthorWallpapers = workshopAuthorProfile?.wallpapers?.length
-    ? workshopAuthorProfile.wallpapers.filter(item => item.publishedFileId !== displayWallpaper.publishedFileId)
-    : authorWallpapers;
+  
+  // Mejor lógica de fallback para wallpapers del autor
+  const displayedAuthorWallpapers = (() => {
+    // Primero: wallpapers del perfil del autor (desde Electron API)
+    if (workshopAuthorProfile?.wallpapers?.length) {
+      console.log('👁️ Usando wallpapers del perfil del autor:', workshopAuthorProfile.wallpapers.length);
+      return workshopAuthorProfile.wallpapers.filter(
+        item => item.publishedFileId !== displayWallpaper.publishedFileId
+      );
+    }
+    
+    // Fallback: wallpapers pasados como prop (desde SteamIntegration)
+    if (authorWallpapers?.length) {
+      console.log('👁️ Usando wallpapers pasados como prop:', authorWallpapers.length);
+      return authorWallpapers;
+    }
+    
+    // Último recurso: retornar array vacío (se ocultará la sección)
+    console.warn('⚠️ No hay wallpapers del autor disponibles', { authorId, authorName });
+    return [];
+  })();
 
   useEffect(() => {
     setResolvedAuthor('');
@@ -245,10 +314,14 @@ export default function WallpaperDetails({
   };
 
   const handleDownload = () => {
-    onDownload?.(displayWallpaper);
-    if (!isDownloaded && authorId) {
-      setSubscribed(true);
-      onSubscribe?.(authorId, true, displayWallpaper);
+    if (isIncomplete && onRepair) {
+      onRepair(displayWallpaper);
+    } else {
+      onDownload?.(displayWallpaper);
+      if (!isDownloaded && authorId) {
+        setSubscribed(true);
+        onSubscribe?.(authorId, true, displayWallpaper);
+      }
     }
   };
 
@@ -383,9 +456,32 @@ export default function WallpaperDetails({
     );
   };
 
-  const primaryActionLabel = isDownloaded ? 'Reparar' : 'Descargar';
-  const primaryActionIcon = isDownloaded ? 'arrow-repeat' : 'download';
+  const primaryActionLabel = isIncomplete ? '🔧 Reparar' : (isDownloaded ? 'Reparar' : 'Descargar');
+  const primaryActionIcon = isIncomplete ? 'wrench' : (isDownloaded ? 'arrow-repeat' : 'download');
   const primaryActionDisabled = repairing || !downloaderReady || !onDownload;
+
+  if (!wallpaper) {
+    return null;
+  }
+
+  // Validate critical data
+  if (!localWallpaper.publishedFileId) {
+    console.error('[WallpaperDetails] ❌ CRITICAL: wallpaper has no publishedFileId:', wallpaper);
+    return createPortal(
+      <div className="wallpaper-details-overlay" ref={overlayRef} onClick={onClose}>
+        <section className="wallpaper-detail-screen" onClick={(event) => event.stopPropagation()}>
+          <div style={{ padding: '40px', textAlign: 'center' }}>
+            <h2>⚠️ Error cargando wallpaper</h2>
+            <p>No se pudo obtener el ID del wallpaper. Por favor intenta nuevamente.</p>
+            <button onClick={onClose} style={{ marginTop: '20px', padding: '10px 20px' }}>
+              Cerrar
+            </button>
+          </div>
+        </section>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div className="wallpaper-details-overlay" ref={overlayRef} onClick={onClose}>
@@ -469,20 +565,55 @@ export default function WallpaperDetails({
             </div>
 
             <div className="detail-author">
-              <div>{String(displayAuthor || '?').slice(0, 2).toUpperCase()}</div>
+              <button 
+                type="button"
+                className="detail-author-avatar"
+                onClick={handleOpenAuthor}
+                title="Ver perfil del autor"
+              >
+                {String(displayAuthor || '?').slice(0, 2).toUpperCase()}
+              </button>
               <p>
                 <strong><i className="bi bi-person-badge"></i> {displayAuthor}</strong>
                 {authorInfo?.handle && <small>{authorInfo.handle}</small>}
               </p>
-              {onOpenAuthor && (
-                <button type="button" className="detail-author-link" onClick={handleOpenAuthor}>
-                  Perfil del autor
-                </button>
-              )}
+              <div className="detail-author-actions">
+                {onSubscribe && (
+                  <button
+                    type="button"
+                    className={`detail-author-link subscribe-btn ${subscribed ? 'subscribed' : ''}`}
+                    onClick={handleSubscribe}
+                  >
+                    <i className={`bi bi-bell${subscribed ? '-fill' : ''}`}></i>
+                    {subscribed ? 'Suscrito' : 'Suscribir'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {displayWallpaper.description && (
-              <p className="detail-description">{displayWallpaper.description}</p>
+              <section className="detail-description-section">
+                <p className="detail-description">{cleanDescriptionText(displayWallpaper.description)}</p>
+                {extractDescriptionLinks(displayWallpaper.description).length > 0 && (
+                  <div className="detail-description-links">
+                    <span className="detail-description-links-title">Enlaces del autor:</span>
+                    <div className="detail-description-links-buttons">
+                      {extractDescriptionLinks(displayWallpaper.description).map((link, index) => (
+                        <a
+                          key={index}
+                          href={link.url.startsWith('http') ? link.url : `https://${link.url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`detail-description-link-btn ${link.type}`}
+                          title={link.url}
+                        >
+                          <i className={`bi bi-${link.icon}`}></i> {link.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
 
             <div className="detail-metrics">

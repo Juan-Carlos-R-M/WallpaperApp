@@ -1,0 +1,4 @@
+- [ ] Editar `electron/workshopService.js` para reforzar detección de SteamCMD/DepotDownloader y loguear existsSync por candidato
+- [ ] Abrir app → Configuración → Actualizar
+- [ ] Ver que `hasDownloader` pase a “listo” y/o que en `main.log` aparezca `DepotDownloader candidate exists=true` para la ruta correcta
+- [ ] Probar descarga de un wallpaper

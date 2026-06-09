@@ -1,5 +1,6 @@
 import { isMatureWallpaper } from './contentPreferences';
 import { getAuthorInfo, getPreviewUrl, getWallpaperId } from './wallpaperMeta';
+import { safeSetItem, safeGetItem } from './storageHelper';
 
 export const FAVORITES_STORAGE_KEY = 'wallpaperApp.workshopFavorites';
 export const SUBSCRIPTIONS_STORAGE_KEY = 'wallpaperApp.subscriptions';
@@ -7,19 +8,18 @@ export const WALLPAPER_INTERACTIONS_STORAGE_KEY = 'wallpaperApp.wallpaperInterac
 export const RECOMMENDATION_SIGNAL_EVENT = 'wallpaperApp.recommendationSignalsChanged';
 
 const readJson = (key, fallback) => {
-  try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch {
-    return fallback;
-  }
+  const value = safeGetItem(key, fallback);
+  return value !== null ? value : fallback;
 };
 
 const writeJson = (key, value) => {
-  localStorage.setItem(key, JSON.stringify(value));
-  window.dispatchEvent(new CustomEvent(RECOMMENDATION_SIGNAL_EVENT, {
-    detail: { key, value }
-  }));
+  const success = safeSetItem(key, value);
+  if (success) {
+    window.dispatchEvent(new CustomEvent(RECOMMENDATION_SIGNAL_EVENT, {
+      detail: { key, value }
+    }));
+  }
+  return success;
 };
 
 export const loadFavoriteWallpapers = () => readJson(FAVORITES_STORAGE_KEY, []);
@@ -27,7 +27,7 @@ export const loadFavoriteWallpapers = () => readJson(FAVORITES_STORAGE_KEY, []);
 export const loadAuthorSubscriptions = () => readJson(SUBSCRIPTIONS_STORAGE_KEY, {});
 
 export const saveAuthorSubscriptions = (subscriptions) => {
-  writeJson(SUBSCRIPTIONS_STORAGE_KEY, subscriptions || {});
+  return writeJson(SUBSCRIPTIONS_STORAGE_KEY, subscriptions || {});
 };
 
 export const loadWallpaperInteractions = () => readJson(WALLPAPER_INTERACTIONS_STORAGE_KEY, {});
@@ -85,6 +85,33 @@ export const updateAuthorSubscription = (subscriptions = {}, authorId, following
       contentTypes: Array.from(new Set([...previousTypes, ...nextTypes].filter(Boolean)))
     }
   };
+};
+
+export const saveAuthorProfileInfo = (authorId, profileData = {}) => {
+  if (!authorId) return loadAuthorSubscriptions();
+
+  const subscriptions = loadAuthorSubscriptions();
+  const previous = subscriptions[authorId] || {};
+  
+  // Guardar información del perfil del autor
+  subscriptions[authorId] = {
+    ...previous,
+    following: Boolean(previous.following),
+    followedAt: previous.followedAt || Date.now(),
+    source: previous.source || 'steam',
+    // Información enriquecida del perfil
+    name: profileData.name || previous.name || String(authorId).slice(-6),
+    handle: profileData.handle || previous.handle || `@${String(authorId).slice(0, 12)}`,
+    avatar: profileData.avatar || profileData.avatarUrl || previous.avatar || '',
+    avatarUrl: profileData.avatarUrl || profileData.avatar || previous.avatarUrl || '',
+    description: profileData.description || previous.description || '',
+    bio: profileData.bio || previous.bio || '',
+    followers: Number(profileData.followers) || Number(previous.followers) || 0,
+    url: profileData.url || previous.url || (authorId ? `https://steamcommunity.com/profiles/${encodeURIComponent(authorId)}` : '')
+  };
+
+  saveAuthorSubscriptions(subscriptions);
+  return subscriptions;
 };
 
 export const followAuthorFromWallpaper = (wallpaper = {}, source = 'download') => {

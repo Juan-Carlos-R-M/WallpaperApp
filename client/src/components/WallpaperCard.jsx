@@ -116,7 +116,20 @@ const WallpaperCard = memo(({
       }
     } catch (error) {
       console.error('Error downloading wallpaper:', error);
-      alert(`No se pudo descargar el wallpaper: ${error.message}`);
+      
+      // Formatear el error para que sea más legible
+      let errorMessage = error.message || 'No se pudo descargar el wallpaper';
+      
+      // Si contiene saltos de línea, es probablemente un mensaje más detallado
+      if (errorMessage.includes('\n')) {
+        // Mostrar en consola el mensaje completo
+        console.error('Detalles del error de descarga:\n' + errorMessage);
+        // Y mostrar un resumen al usuario
+        const lines = errorMessage.split('\n');
+        errorMessage = lines.slice(0, 3).join('\n');
+      }
+      
+      alert(`Descarga fallida:\n\n${errorMessage}\n\nRevisa la consola para más detalles.`);
     } finally {
       setIsDownloading(false);
     }

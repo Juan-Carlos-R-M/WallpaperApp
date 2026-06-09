@@ -463,6 +463,14 @@
   font-weight: 700;
 }
 
+.gallery-skeleton-loader {
+  display: contents;
+}
+
+.gallery-skeleton-loader .skeleton-card {
+  background: rgb(var(--color-bg-surface-rgb) / 0.3);
+}
+
 .gallery-empty,
 .gallery-error {
   display: flex;

@@ -265,3 +265,104 @@ export const getAuthorWallpapers = (currentWallpaper = {}, items = []) => {
   return uniqueWallpapers(items)
     .filter(item => getWallpaperId(item) !== currentId && sameAuthor(currentWallpaper, item));
 };
+
+// Extraer y clasificar links de la descripción
+export const extractDescriptionLinks = (description = '') => {
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const links = [];
+  let match;
+
+  while ((match = urlRegex.exec(description)) !== null) {
+    const url = match[1];
+    let type = 'web';
+    let icon = 'link-45deg';
+    let label = 'Enlace';
+
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      type = 'youtube';
+      icon = 'youtube';
+      label = 'YouTube';
+    } else if (url.includes('discord.gg') || url.includes('discord.com')) {
+      type = 'discord';
+      icon = 'discord';
+      label = 'Discord';
+    } else if (url.includes('twitter.com') || url.includes('x.com')) {
+      type = 'twitter';
+      icon = 'twitter';
+      label = 'Twitter/X';
+    } else if (url.includes('twitch.tv')) {
+      type = 'twitch';
+      icon = 'twitch';
+      label = 'Twitch';
+    } else if (url.includes('patreon.com')) {
+      type = 'patreon';
+      icon = 'heart-fill';
+      label = 'Patreon';
+    } else if (url.includes('github.com')) {
+      type = 'github';
+      icon = 'github';
+      label = 'GitHub';
+    } else if (url.includes('reddit.com')) {
+      type = 'reddit';
+      icon = 'reddit';
+      label = 'Reddit';
+    }
+
+    links.push({ url, type, icon, label });
+  }
+
+  return links;
+};
+
+// Limpiar descripción removiendo links
+export const cleanDescriptionText = (description = '') => {
+  return description
+    .replace(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// Obtener URL del canal de Steam del autor
+export const getSteamAuthorProfileUrl = (authorId = '') => {
+  if (!authorId || !/^\d+$/.test(String(authorId))) return null;
+  return `https://steamcommunity.com/profiles/${authorId}`;
+};
+
+// Obtener URL de la página Workshop del autor
+export const getSteamWorkshopAuthorUrl = (authorId = '') => {
+  if (!authorId || !/^\d+$/.test(String(authorId))) return null;
+  return `https://steamcommunity.com/profiles/${authorId}/myworkshopfiles/`;
+};
+
+// Normalizar wallpaper asegurando que tenga todos los campos necesarios
+export const normalizeWallpaperItem = (wallpaper = {}) => {
+  if (!wallpaper || typeof wallpaper !== 'object') return null;
+  
+  return {
+    ...wallpaper,
+    // Asegurar que siempre hay un ID, aunque sea falso
+    publishedFileId: wallpaper.publishedFileId || wallpaper.id || wallpaper.fileId || '',
+    // Título es crítico
+    title: wallpaper.title || wallpaper.name || 'Sin título',
+    // Autor
+    author: wallpaper.author || wallpaper.authorName || wallpaper.creator || wallpaper.publisherName || 'Desconocido',
+    // Tags como array
+    tags: Array.isArray(wallpaper.tags) ? wallpaper.tags : (wallpaper.tags ? [wallpaper.tags] : []),
+    // Tipo de media
+    mediaType: wallpaper.mediaType || wallpaper.type || 'Image',
+    // URLs de preview
+    previewUrl: wallpaper.previewUrl || wallpaper.image || wallpaper.thumbnail || wallpaper.preview || '',
+    // Descripción
+    description: wallpaper.description || '',
+    // Campos del autor
+    authorId: wallpaper.authorId || wallpaper.creator || '',
+    // Timestamps
+    timeCreated: wallpaper.timeCreated || wallpaper.createdAt || wallpaper.created_time || 0,
+    timeUpdated: wallpaper.timeUpdated || wallpaper.updatedAt || wallpaper.updated_time || 0,
+    // Stats
+    views: wallpaper.views || wallpaper.visit_count || 0,
+    downloads: wallpaper.downloads || wallpaper.subscriptions || 0,
+    likes: wallpaper.likes || wallpaper.favorited || 0,
+    score: wallpaper.score || wallpaper.rating?.average || 0,
+  };
+};

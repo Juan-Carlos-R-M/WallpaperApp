@@ -1065,7 +1065,7 @@
   border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.08);
 }
 
-.detail-author > div {
+.detail-author-avatar {
   display: grid;
   place-items: center;
   width: 42px;
@@ -1074,6 +1074,15 @@
   color: var(--color-text);
   background: linear-gradient(135deg, var(--color-bg-avatar), var(--color-accent));
   font-weight: 900;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.detail-author-avatar:hover {
+  box-shadow: 0 0 12px rgb(var(--color-accent-rgb) / 0.5);
+  transform: scale(1.05);
 }
 
 .detail-author p {
@@ -1092,6 +1101,12 @@
   color: var(--text-lighter);
 }
 
+.detail-author-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .detail-author-link {
   min-height: 36px;
   padding: 0 12px;
@@ -1101,14 +1116,177 @@
   background: rgb(var(--color-accent-rgb) / 0.08);
   cursor: pointer;
   font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.detail-author-link:hover {
+  background: rgb(var(--color-accent-rgb) / 0.15);
+  border-color: rgb(var(--color-accent-rgb) / 0.6);
+}
+
+.detail-author-link.subscribe-btn {
+  border-color: rgb(255, 200, 0, 0.3);
+  background: rgb(255, 200, 0, 0.08);
+  color: rgb(255, 220, 100);
+}
+
+.detail-author-link.subscribe-btn:hover {
+  background: rgb(255, 200, 0, 0.15);
+  border-color: rgb(255, 200, 0);
+  color: rgb(255, 240, 150);
+}
+
+.detail-author-link.subscribe-btn.subscribed {
+  border-color: rgb(100, 200, 100);
+  background: rgb(100, 200, 100, 0.1);
+  color: rgb(150, 255, 150);
+}
+
+.detail-author-link.subscribe-btn.subscribed:hover {
+  background: rgb(100, 200, 100, 0.15);
+  border-color: rgb(150, 255, 150);
+}
+
+.detail-author-link.steam-channel {
+  border-color: rgb(0, 100, 168);
+  background: rgb(0, 100, 168, 0.08);
+  color: rgb(150, 200, 255);
+}
+
+.detail-author-link.steam-channel:hover {
+  background: rgb(0, 100, 168, 0.15);
+  border-color: rgb(0, 100, 168);
+}
+
+.detail-description-section {
+  margin: 0 20px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.08);
 }
 
 .detail-description {
-  margin: 0 20px;
-  padding: 0 0 16px;
+  margin: 0;
+  padding: 0 0 12px;
   color: rgb(var(--color-white-rgb) / 0.7);
   line-height: 1.55;
-  border-bottom: 1px solid rgb(var(--color-white-rgb) / 0.08);
+}
+
+.detail-description-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-description-links-title {
+  font-size: 0.85rem;
+  color: rgb(var(--color-white-rgb) / 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.detail-description-links-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-description-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgb(var(--color-white-rgb) / 0.15);
+  border-radius: 6px;
+  background: rgb(var(--color-white-rgb) / 0.05);
+  color: var(--color-accent-soft);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.detail-description-link-btn:hover {
+  background: rgb(var(--color-white-rgb) / 0.1);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.detail-description-link-btn.youtube {
+  border-color: rgb(255, 0, 0, 0.3);
+  color: rgb(255, 100, 100);
+}
+
+.detail-description-link-btn.youtube:hover {
+  background: rgb(255, 0, 0, 0.1);
+  border-color: rgb(255, 0, 0);
+  color: rgb(255, 150, 150);
+}
+
+.detail-description-link-btn.discord {
+  border-color: rgb(114, 137, 218, 0.3);
+  color: rgb(114, 137, 218);
+}
+
+.detail-description-link-btn.discord:hover {
+  background: rgb(114, 137, 218, 0.1);
+  border-color: rgb(114, 137, 218);
+}
+
+.detail-description-link-btn.twitter {
+  border-color: rgb(29, 161, 242, 0.3);
+  color: rgb(29, 161, 242);
+}
+
+.detail-description-link-btn.twitter:hover {
+  background: rgb(29, 161, 242, 0.1);
+  border-color: rgb(29, 161, 242);
+}
+
+.detail-description-link-btn.twitch {
+  border-color: rgb(145, 71, 255, 0.3);
+  color: rgb(145, 71, 255);
+}
+
+.detail-description-link-btn.twitch:hover {
+  background: rgb(145, 71, 255, 0.1);
+  border-color: rgb(145, 71, 255);
+}
+
+.detail-description-link-btn.patreon {
+  border-color: rgb(255, 86, 86, 0.3);
+  color: rgb(255, 86, 86);
+}
+
+.detail-description-link-btn.patreon:hover {
+  background: rgb(255, 86, 86, 0.1);
+  border-color: rgb(255, 86, 86);
+}
+
+.detail-description-link-btn.github {
+  border-color: rgb(255, 255, 255, 0.3);
+  color: rgb(255, 255, 255);
+}
+
+.detail-description-link-btn.github:hover {
+  background: rgb(255, 255, 255, 0.1);
+  border-color: rgb(255, 255, 255);
+}
+
+.detail-description-link-btn.reddit {
+  border-color: rgb(255, 69, 0, 0.3);
+  color: rgb(255, 120, 80);
+}
+
+.detail-description-link-btn.reddit:hover {
+  background: rgb(255, 69, 0, 0.1);
+  border-color: rgb(255, 69, 0);
 }
 
 .detail-metrics {
@@ -1807,6 +1985,14 @@
   padding: var(--spacing-xl);
   font-size: 13px;
   letter-spacing: 0.2px;
+}
+
+.workshop-skeleton-loader {
+  display: contents;
+}
+
+.workshop-skeleton-loader .skeleton-card {
+  background: rgb(var(--color-bg-surface-rgb) / 0.5);
 }
 
 .app-notification-stack {

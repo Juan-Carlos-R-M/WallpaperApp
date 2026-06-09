@@ -34,6 +34,32 @@ export const isMatureWallpaper = (wallpaper = {}) => (
   getWallpaperAgeRating(wallpaper).toLowerCase() === 'mature'
 );
 
-export const canShowWallpaper = (wallpaper = {}, showMatureContent = false) => (
-  showMatureContent || !isMatureWallpaper(wallpaper)
-);
+export const isValidWallpaper = (wallpaper = {}) => {
+  // Un wallpaper es válido si tiene al menos título y un ID
+  // Aceptamos varios formatos de ID para mayor compatibilidad
+  const hasId = wallpaper.publishedFileId || wallpaper.id || wallpaper.fileId || wallpaper.localPath || wallpaper.mediaUrl;
+  const hasTitle = wallpaper.title && String(wallpaper.title).trim();
+  
+  const isValid = Boolean(hasId && hasTitle);
+  
+  // Solo loguear si el wallpaper es realmente inválido (falta ID o título)
+  if (!isValid && Object.keys(wallpaper).length > 0) {
+    console.warn('[ContentPreferences] Wallpaper inválido (falta ID o título):', {
+      title: wallpaper.title,
+      hasId,
+      hasTitle
+    });
+  }
+  
+  return isValid;
+};
+
+export const canShowWallpaper = (wallpaper = {}, showMatureContent = false) => {
+  // Primero, validar que sea un wallpaper válido
+  if (!isValidWallpaper(wallpaper)) {
+    return false;
+  }
+
+  // Luego, validar contenido maduro
+  return showMatureContent || !isMatureWallpaper(wallpaper);
+};

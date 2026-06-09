@@ -1,6 +1,20 @@
 import React, { useState, useCallback } from 'react';
 import '../styles/header.css';
 
+const handleAppExit = async () => {
+  if (window.electronAPI?.invoke) {
+    try {
+      const result = await window.electronAPI.invoke('app-exit');
+      if (!result?.success) {
+        console.error('Error al cerrar la app:', result?.error);
+      }
+    } catch (error) {
+      console.error('Error al invocar exit:', error);
+      process.exit(0);
+    }
+  }
+};
+
 const CATEGORIES = [
   { id: '', label: 'Todos' },
   { id: 'nature', label: 'Naturaleza' },
@@ -226,6 +240,17 @@ const Header = ({
                 {unreadNotifications > 0 && <span>{Math.min(unreadNotifications, 99)}</span>}
               </button>
               <button type="button" aria-label="Perfil" className="header-avatar" onClick={onOpenProfile}>WG</button>
+              {window.electronAPI && (
+                <button 
+                  type="button" 
+                  aria-label="Salir" 
+                  className="header-exit-btn" 
+                  onClick={handleAppExit}
+                  title="Salir de la aplicación"
+                >
+                  <i className="bi bi-box-arrow-right"></i>
+                </button>
+              )}
             </div>
 
             {filtersOpen && canShowFilters && (
@@ -404,6 +429,14 @@ const Header = ({
                             {notification.status && <span>{notification.status}</span>}
                           </div>
                           <p>{notification.message}</p>
+                          {notification.type === 'progress' && typeof notification.progress === 'number' && (
+                            <div className="header-notification-progress">
+                              <div className="progress-bar">
+                                <div className="progress-fill" style={{ width: `${Math.min(notification.progress, 100)}%` }}></div>
+                              </div>
+                              <small>{Math.round(notification.progress)}%</small>
+                            </div>
+                          )}
                           {notification.wallpaper?.title && (
                             <small><i className="bi bi-image"></i> {notification.wallpaper.title}</small>
                           )}

@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import '../styles/settings.css';
+import {
+  getDownloaderStatusName,
+  getDownloaderStatusPath,
+  isDownloaderStatusReady
+} from '../features/steamWorkshop/workshopUtils';
 
 const DOWNLOAD_CONFIRMATION_STORAGE_KEY = 'wallpaperApp.showDownloadConfirmation';
 
@@ -51,6 +56,10 @@ const Settings = ({
     onMatureContentChange(checked);
   };
 
+  const downloaderReady = isDownloaderStatusReady(downloaderStatus);
+  const downloaderName = getDownloaderStatusName(downloaderStatus);
+  const downloaderPath = getDownloaderStatusPath(downloaderStatus);
+
   return (
     <section className="settings-screen">
       <div className="settings-header">
@@ -77,16 +86,33 @@ const Settings = ({
             </div>
             <div>
               <dt>Descargador</dt>
-              <dd>{downloaderStatus?.hasDownloader ? `${downloaderStatus.downloaderName || 'Descargador'} listo` : 'Falta SteamCMD o DepotDownloader'}</dd>
+              <dd>
+                {downloaderReady
+                  ? `${downloaderName || 'Descargador'} listo`
+                  : 'Falta SteamCMD o DepotDownloader'}
+              </dd>
             </div>
             <div>
               <dt>Ruta detectada</dt>
-              <dd>{downloaderStatus?.downloader || 'No detectada'}</dd>
+              <dd>{downloaderPath || 'No detectada'}</dd>
             </div>
-            {!downloaderStatus?.hasDownloader && downloaderStatus?.searchedDownloaderPaths?.length > 0 && (
+
+            {!downloaderReady && (
               <div>
-                <dt>Rutas revisadas</dt>
-                <dd>{downloaderStatus.searchedDownloaderPaths.join('\n')}</dd>
+                <dt>Rutas revisadas (con existencia)</dt>
+
+                {Array.isArray(downloaderStatus?.depotCandidatesWithExists) &&
+                  downloaderStatus.depotCandidatesWithExists.length > 0 ? (
+                  <dd>
+                    {downloaderStatus.depotCandidatesWithExists
+                      .map(x => `${x.exists ? '[OK] ' : '[NO] '}${x.path}`)
+                      .join('\n')}
+                  </dd>
+                ) : (
+                  downloaderStatus?.searchedDownloaderPaths?.length > 0 && (
+                    <dd>{downloaderStatus.searchedDownloaderPaths.join('\n')}</dd>
+                  )
+                )}
               </div>
             )}
           </dl>

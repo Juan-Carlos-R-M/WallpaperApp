@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSteamAccount: (account) => ipcRenderer.invoke('steam-accounts-save', account),
   removeSteamAccount: (username) => ipcRenderer.invoke('steam-accounts-remove', username),
   selectSteamAccount: (username) => ipcRenderer.invoke('steam-accounts-select', username),
+  send: (channel, data) => {
+    if (['renderer-log'].includes(channel)) {
+      ipcRenderer.send(channel, data);
+    }
+  },
   on: (channel, func) => {
     if (channel === 'wallpaper-changed') {
       ipcRenderer.on(channel, (event, ...args) => func(...args));

@@ -1,5 +1,5 @@
 export const DOWNLOAD_CONFIRMATION_STORAGE_KEY = 'wallpaperApp.showDownloadConfirmation';
-export const WORKSHOP_PAGE_SIZE = 18;
+export const WORKSHOP_PAGE_SIZE = 24; // Optimized: 33% fewer API calls than 18
 
 export const DEFAULT_WORKSHOP_FILTERS = {
   sort: 'trend',

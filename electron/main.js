@@ -169,6 +169,7 @@ const isDev = !app.isPackaged;
 const SteamReader = require('./steamReader');
 const WallpaperManager = require('./wallpaperManager');
 const WorkshopService = require('./workshopService');
+const DownloadRetryService = require('./downloadRetryService');
 const AccountStore = require('./accountStore');
 const LOCAL_MEDIA_PROTOCOL = 'local-media';
 
@@ -197,6 +198,7 @@ let mainWindow;
 let steamReader;
 let wallpaperManager;
 let workshopService;
+let downloadRetryService;
 let accountStore;
 let bundledServer;
 
@@ -488,7 +490,7 @@ const createWindow = () => {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL('http://localhost:5173');
   } else {
     const indexPath = path.join(app.getAppPath(), 'client', 'dist', 'index.html');
     log(`Loading file ${indexPath}`);
@@ -665,9 +667,43 @@ ipcMain.handle('download-workshop-wallpaper', async (_event, options) => {
     const username = options?.username || accountStore.listAccounts().selectedUsername;
     const password = options?.password || accountStore.getPassword(username);
     log(`Download requested for Workshop item ${options?.publishedFileId} username=${username ? 'provided' : 'missing'} password=${password ? 'stored/provided' : 'missing'}`);
-    const result = await workshopService.downloadWallpaper({ ...options, username, password });
-    log(`Download completed for Workshop item ${options?.publishedFileId}`);
-    return { success: true, data: result };
+    
+    const result = await downloadRetryService.downloadWithRetry(
+      options?.publishedFileId,
+      async () => {
+        return await workshopService.downloadWallpaper({ ...options, username, password });
+      },
+      {
+        maxRetries: 3,
+        retryDelay: 2000,
+        onRetry: ({ attempt, maxRetries, error }) => {
+          log(`⏳ Reintentando descarga (intento ${attempt}/${maxRetries}): ${error.message}`);
+        },
+        onFailed: ({ publishedFileId, error, attempts, isRecoverable }) => {
+          if (!isRecoverable) {
+            log(`❌ Error permanente en descarga ${publishedFileId}: ${error.message}`);
+          } else {
+            log(`❌ Falló descarga ${publishedFileId} después de ${attempts} intentos: ${error.message}`);
+          }
+          
+          // Limpiar descargas parciales cuando falla
+          try {
+            workshopService.deleteWallpaper({ publishedFileId });
+            log(`🧹 Cleaned up partial download for ${publishedFileId}`);
+          } catch (cleanupErr) {
+            log(`⚠️ Could not cleanup partial download for ${publishedFileId}:`, cleanupErr);
+          }
+        }
+      }
+    );
+
+    if (result.success) {
+      log(`✅ Download completed for Workshop item ${options?.publishedFileId} (attempts: ${result.attempts})`);
+      return { success: true, data: result.result };
+    } else {
+      log(`❌ Download failed for Workshop item ${options?.publishedFileId} (attempts: ${result.attempts})`);
+      return { success: false, error: result.error.message, attempts: result.attempts, isRecoverable: result.isRecoverable };
+    }
   } catch (error) {
     log(`Error downloading Workshop item ${options?.publishedFileId}:`, error);
     console.error('Error downloading Workshop wallpaper:', error);
@@ -810,6 +846,17 @@ ipcMain.handle('open-path', async (_event, targetPath) => {
     return result ? { success: false, error: result } : { success: true };
   } catch (error) {
     return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('app-exit', async () => {
+  try {
+    console.log('[App] Cerrando aplicación de forma limpia...');
+    app.quit();
+    return { success: true };
+  } catch (error) {
+    console.error('[App] Error al cerrar:', error.message);
+    process.exit(0);
   }
 });
 
@@ -1156,6 +1203,10 @@ app.on('ready', async () => {
   workshopService = new WorkshopService({
     userDataPath: app.getPath('userData'),
     steamReader,
+    logger: log
+  });
+  downloadRetryService = new DownloadRetryService({
+    maxRetries: 3,
     logger: log
   });
   await startBundledServer();

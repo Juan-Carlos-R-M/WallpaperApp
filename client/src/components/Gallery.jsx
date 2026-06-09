@@ -24,6 +24,8 @@ import {
   updateAuthorSubscription
 } from '../utils/recommendationSignals';
 import { fetchOnlineRecommendations } from '../utils/workshopRecommendations';
+import { safeSetItem, safeGetItem } from '../utils/storageHelper';
+import SkeletonLoader from './SkeletonLoader';
 import '../styles/gallery.css';
 
 const PAGE_SIZE = 24;
@@ -47,13 +49,14 @@ const Gallery = ({
   const [viewMode, setViewMode] = useState('grid');
   const [onlineRelatedWallpapers, setOnlineRelatedWallpapers] = useState([]);
   const observerTarget = useRef(null);
+  const nextPageRef = useRef(1);
 
   useEffect(() => {
     try {
-      const savedSubscriptions = localStorage.getItem('wallpaperApp.subscriptions');
-      const savedFavorites = localStorage.getItem('wallpaperApp.workshopFavorites');
-      if (savedSubscriptions) setSubscriptions(JSON.parse(savedSubscriptions));
-      if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
+      const savedSubscriptions = safeGetItem('wallpaperApp.subscriptions', {});
+      const savedFavorites = safeGetItem('wallpaperApp.workshopFavorites', []);
+      setSubscriptions(savedSubscriptions);
+      setFavorites(savedFavorites);
     } catch {
       setSubscriptions({});
       setFavorites([]);
@@ -73,7 +76,7 @@ const Gallery = ({
         isSubscribed,
         wallpaper ? buildAuthorSubscriptionRecord(wallpaper, 'manual') : { source: 'manual' }
       );
-      localStorage.setItem('wallpaperApp.subscriptions', JSON.stringify(updated));
+      safeSetItem('wallpaperApp.subscriptions', updated);
       return updated;
     });
   }, []);
@@ -148,7 +151,7 @@ const Gallery = ({
       })
       .map((wallpaper, index) => normalizeDesktopWallpaper(wallpaper, index))
       .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
-  }, [search, normalizeDesktopWallpaper, showMatureContent]);
+  }, [search, showMatureContent, normalizeDesktopWallpaper]);
 
   const fetchWallpapers = useCallback(async (pageNum = 1, reset = false) => {
     try {
@@ -207,26 +210,41 @@ const Gallery = ({
 
   useEffect(() => {
     setPage(1);
+    nextPageRef.current = 2;
     setWallpapers([]);
     fetchWallpapers(1, true);
   }, [category, search, fetchWallpapers]);
 
   useEffect(() => {
+    nextPageRef.current = page + 1;
+  }, [page]);
+
+  useEffect(() => {
     const observer = new IntersectionObserver(
       entries => {
         if (entries[0].isIntersecting && hasMore && !loading) {
-          fetchWallpapers(page + 1);
+          // Usar nextPageRef.current directamente en lugar de fetchWallpapers
+          const currentFetch = fetchWallpapers;
+          if (currentFetch && nextPageRef.current) {
+            currentFetch(nextPageRef.current);
+          }
         }
       },
-      { threshold: 0.1, rootMargin: '200px' }
+      { threshold: 0.1, rootMargin: '1500px' }
     );
 
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current);
+    const currentTarget = observerTarget.current;
+    if (currentTarget) {
+      observer.observe(currentTarget);
     }
 
-    return () => observer.disconnect();
-  }, [fetchWallpapers, page, hasMore, loading]);
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget);
+      }
+      observer.disconnect();
+    };
+  }, [hasMore, loading, fetchWallpapers]);
 
   const handleOpenDetails = (wallpaper) => {
     const enriched = enrichWallpaperMetadata(wallpaper);
@@ -550,16 +568,23 @@ const Gallery = ({
           </div>
 
           {hasMore && (
-            <div ref={observerTarget} className="gallery-loader">
-              {loading ? (
-                <>
-                  <i className="bi bi-arrow-repeat spin-icon"></i>
-                  <span>Cargando mas wallpapers...</span>
-                </>
-              ) : (
-                <span>Desplazate para cargar mas</span>
+            <>
+              {loading && (
+                <div className="gallery-skeleton-loader">
+                  <SkeletonLoader count={6} variant="card" />
+                </div>
               )}
-            </div>
+              <div ref={observerTarget} className="gallery-loader">
+                {loading ? (
+                  <>
+                    <i className="bi bi-arrow-repeat spin-icon"></i>
+                    <span>Cargando mas wallpapers...</span>
+                  </>
+                ) : (
+                  <span>Desplazate para cargar mas</span>
+                )}
+              </div>
+            </>
           )}
 
         </>

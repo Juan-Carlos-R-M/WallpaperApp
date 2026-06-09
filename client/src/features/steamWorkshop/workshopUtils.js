@@ -15,6 +15,27 @@ export const getRequiredWorkshopTags = (filters = {}) => [
   filters.ageRating
 ].filter(Boolean);
 
+export const isDownloaderStatusReady = (status = {}) => Boolean(
+  status?.hasDownloader
+  || status?.downloader
+  || status?.steamcmd
+  || status?.depotDownloader
+);
+
+export const getDownloaderStatusPath = (status = {}) => (
+  status?.downloader
+  || status?.steamcmd
+  || status?.depotDownloader
+  || ''
+);
+
+export const getDownloaderStatusName = (status = {}) => (
+  status?.downloaderName
+  || (status?.steamcmd ? 'SteamCMD' : '')
+  || (status?.depotDownloader ? 'DepotDownloader' : '')
+  || (status?.downloader ? 'Descargador' : '')
+);
+
 export const mergeUniqueWorkshopWallpapers = (currentItems = [], nextItems = []) => {
   const seen = new Set();
 

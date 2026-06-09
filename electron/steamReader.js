@@ -294,11 +294,15 @@ class SteamReader {
         previewPath = configuredPreviewPath;
         previewUrl = this.toDisplayUrl(configuredPreviewPath);
       } else {
+        // Fallback: intentamos también en carpetas típicas del paquete de Workshop
         const fallbackPreviewPath = this.findFirstExistingFile(projectPath, [
           'preview.jpg',
           'preview.png',
           'preview.gif',
-          'preview.jpeg'
+          'preview.jpeg',
+          path.join('resource', 'image', 'preview.jpg'),
+          path.join('image', 'preview.jpg'),
+          path.join('assets', 'preview.jpg'),
         ]);
 
         if (fallbackPreviewPath) {
@@ -306,6 +310,7 @@ class SteamReader {
           previewUrl = this.toDisplayUrl(previewPath);
         }
       }
+
 
       const configuredMediaPath = config.file ? path.join(projectPath, config.file) : '';
       if (configuredMediaPath && fs.existsSync(configuredMediaPath)) {

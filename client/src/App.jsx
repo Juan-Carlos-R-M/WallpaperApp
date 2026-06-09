@@ -1,11 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import Home from './components/Home';
-import Gallery from './components/Gallery';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+
+
 import Header from './components/Header';
-import SteamIntegration, { DEFAULT_WORKSHOP_FILTERS } from './components/SteamIntegration';
-import SteamUsersManager from './components/SteamUsersManager';
-import AuthorsExplorer from './components/AuthorsExplorer';
-import Settings from './components/Settings';
+import LoadingScreen from './components/LoadingScreen';
+import { DEFAULT_WORKSHOP_FILTERS } from './utils/workshopFilters';
 import {
   CONTENT_PREFERENCES_EVENT,
   MATURE_CONTENT_STORAGE_KEY,
@@ -13,8 +11,71 @@ import {
   saveShowMatureContent
 } from './utils/contentPreferences';
 import { getPreviewUrl } from './utils/wallpaperMeta';
-import 'bootstrap-icons/font/bootstrap-icons.css';
+
+
 import './App.css';
+
+
+
+const Home = lazy(() => import('./components/Home'));
+const Gallery = lazy(() => import('./components/Gallery'));
+const SteamIntegration = lazy(() => import('./components/SteamIntegration'));
+const SteamUsersManager = lazy(() => import('./components/SteamUsersManager'));
+const AuthorsExplorer = lazy(() => import('./components/AuthorsExplorer'));
+const Settings = lazy(() => import('./components/Settings'));
+
+// Error Boundary para atrapar errores sin control
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error atrapado por ErrorBoundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          backgroundColor: '#1a1a2e',
+          color: '#fff',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <i style={{ fontSize: '48px' }} className="bi bi-exclamation-triangle-fill"></i>
+          <div style={{ textAlign: 'center', maxWidth: '400px' }}>
+            <h1>⚠️ Error en la aplicación</h1>
+            <p>Ocurrió un error inesperado. Por favor, recarga la página.</p>
+            <button onClick={() => globalThis.location.reload()} style={{
+              padding: '10px 20px',
+              marginTop: '20px',
+              backgroundColor: '#ff6b6b',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}>
+              Recargar aplicación
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Inicio', icon: 'house-door' },
@@ -27,10 +88,10 @@ const NAV_ITEMS = [
 ];
 
 const WORKSHOP_FILTER_STORAGE_KEY = 'wallpaperApp.workshopFilters';
-const NOTIFICATION_VISIBLE_MS = 3800;
+const NOTIFICATION_VISIBLE_MS = 5000;
 const NOTIFICATION_EXIT_MS = 260;
 
-const loadWorkshopFilters = () => {
+const loadSavedWorkshopFilters = () => {
   try {
     const saved = localStorage.getItem(WORKSHOP_FILTER_STORAGE_KEY);
     return saved ? { ...DEFAULT_WORKSHOP_FILTERS, ...JSON.parse(saved) } : DEFAULT_WORKSHOP_FILTERS;
@@ -39,15 +100,27 @@ const loadWorkshopFilters = () => {
   }
 };
 
+const getNotificationIconClass = (type) => {
+  switch (type) {
+    case 'success':
+      return 'download';
+    case 'progress':
+      return 'arrow-repeat spin-icon';
+    default:
+      return 'exclamation-triangle-fill';
+  }
+};
+
 function App() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('home');
   const [galleryFeed, setGalleryFeed] = useState('recent');
-  const [workshopFilters, setWorkshopFilters] = useState(loadWorkshopFilters);
+  const [workshopFilters, setWorkshopFilters] = useState(loadSavedWorkshopFilters);
   const [notifications, setNotifications] = useState([]);
   const [showMatureContent, setShowMatureContent] = useState(loadShowMatureContent);
   const notificationIdRef = useRef(0);
+  const notificationTimeoutsRef = useRef(new Set()); // Track which notifications have timeouts
 
   const showGallery = activeTab === 'gallery';
   const showUsers = activeTab === 'users';
@@ -55,13 +128,13 @@ function App() {
   const scrollToTop = useCallback(() => {
     const restore = () => {
       const scrollElement = document.scrollingElement || document.documentElement;
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      globalThis.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       if (scrollElement) scrollElement.scrollTop = 0;
       if (document.body) document.body.scrollTop = 0;
     };
     restore();
-    window.requestAnimationFrame(restore);
-    window.setTimeout(restore, 80);
+    globalThis.requestAnimationFrame(restore);
+    globalThis.setTimeout(restore, 80);
   }, []);
 
   const handleNavigate = useCallback((nextTab) => {
@@ -89,12 +162,12 @@ function App() {
       }
     };
 
-    window.addEventListener(CONTENT_PREFERENCES_EVENT, handlePreferenceChange);
-    window.addEventListener('storage', handleStorageChange);
+    globalThis.addEventListener(CONTENT_PREFERENCES_EVENT, handlePreferenceChange);
+    globalThis.addEventListener('storage', handleStorageChange);
 
     return () => {
-      window.removeEventListener(CONTENT_PREFERENCES_EVENT, handlePreferenceChange);
-      window.removeEventListener('storage', handleStorageChange);
+      globalThis.removeEventListener(CONTENT_PREFERENCES_EVENT, handlePreferenceChange);
+      globalThis.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -119,9 +192,9 @@ function App() {
     });
   }, []);
 
-  const resetWorkshopFilters = useCallback(() => {
-    localStorage.setItem(WORKSHOP_FILTER_STORAGE_KEY, JSON.stringify(DEFAULT_WORKSHOP_FILTERS));
-    setWorkshopFilters(DEFAULT_WORKSHOP_FILTERS);
+  const handleResetWorkshopFilters = useCallback(() => {
+    const nextFilters = DEFAULT_WORKSHOP_FILTERS;
+    setWorkshopFilters(nextFilters);
   }, []);
 
   const pushNotification = useCallback((payload, fallbackType = 'error') => {
@@ -132,11 +205,19 @@ function App() {
 
     if (!message) return;
 
-    const id = notificationIdRef.current + 1;
-    notificationIdRef.current = id;
+    // Generar ID único:
+    // - Para descargas: usar solo wallpaperId (progress/error/success se reemplazan)
+    // - Para otros: usar ID secuencial
+    let notificationId;
+    if (notificationPayload.wallpaper?.publishedFileId) {
+      const wallpaperId = notificationPayload.wallpaper.publishedFileId;
+      notificationId = `wallpaper-${wallpaperId}`;
+    } else {
+      notificationId = `generic-${++notificationIdRef.current}`;
+    }
 
     const notification = {
-      id,
+      id: notificationId,
       type: notificationPayload.type || fallbackType,
       title: notificationPayload.title || '',
       message,
@@ -145,27 +226,53 @@ function App() {
       path: notificationPayload.path || '',
       createdAt: new Date().toISOString(),
       visible: true,
-      hiding: false,
-      read: false
+      fading: false,
+      read: false,
+      persistent: notificationPayload.persistent === true
     };
 
-    setNotifications(current => [notification, ...current].slice(0, 40));
+    // Verificar si esta notificación ya tiene timeout configurado
+    const hasExistingTimeout = notificationTimeoutsRef.current.has(notificationId);
 
-    window.setTimeout(() => {
-      setNotifications(current => current.map(item => (
-        item.id === id ? { ...item, visible: false, hiding: true } : item
-      )));
-      window.setTimeout(() => {
-        setNotifications(current => current.filter(item => item.id !== id));
-      }, NOTIFICATION_EXIT_MS);
-    }, notificationPayload.durationMs || NOTIFICATION_VISIBLE_MS);
+    // Reemplazar notificaciones del mismo wallpaper (evitar duplicados)
+    setNotifications(current => {
+      const filtered = current.filter(item => item.id !== notificationId);
+      const updated = [notification, ...filtered].slice(0, 40);
+      return updated;
+    });
+
+    // Solo configurar timeout si es UNA NUEVA notificación (sin timeout existente)
+    // Las actualizaciones (como progreso) no resetean el timer
+    if (!hasExistingTimeout) {
+      // Marcar que esta notificación ya tiene timeout
+      notificationTimeoutsRef.current.add(notificationId);
+
+      // Hacer fade out de la pila flotante después de unos segundos
+      globalThis.setTimeout(() => {
+        setNotifications(current => 
+          current.map(item => 
+            item.id === notificationId ? { ...item, fading: true } : item
+          )
+        );
+        
+        // Después de un tiempo, remover de la vista flotante (pero mantener en bandeja si es persistente)
+        globalThis.setTimeout(() => {
+          setNotifications(current => current.map(item => (
+            item.id === notificationId ? { ...item, visible: false } : item
+          )));
+
+          // Limpiar del Set de timeouts cuando se completa
+          notificationTimeoutsRef.current.delete(notificationId);
+        }, NOTIFICATION_EXIT_MS);
+      }, notificationPayload.durationMs || NOTIFICATION_VISIBLE_MS);
+    }
   }, []);
 
   const hideNotification = useCallback((id) => {
     setNotifications(current => current.map(item => (
       item.id === id ? { ...item, visible: false, hiding: true } : item
     )));
-    window.setTimeout(() => {
+    globalThis.setTimeout(() => {
       setNotifications(current => current.filter(item => item.id !== id));
     }, NOTIFICATION_EXIT_MS);
   }, []);
@@ -189,13 +296,7 @@ function App() {
       {visibleNotifications.map(notification => (
         <div key={notification.id} className={`app-notification ${notification.type} ${notification.hiding ? 'leaving' : ''}`}>
           <span className="app-notification-icon">
-            <i className={`bi bi-${
-              notification.type === 'success'
-                ? 'download'
-                : notification.type === 'progress'
-                  ? 'arrow-repeat spin-icon'
-                  : 'exclamation-triangle-fill'
-            }`}></i>
+            <i className={`bi bi-${getNotificationIconClass(notification.type)}`}></i>
           </span>
           <div className="app-notification-body">
             <div className="app-notification-copy">
@@ -223,128 +324,142 @@ function App() {
   );
 
   return (
-    <div className="app">
-      <aside className="app-sidebar" aria-label="Navegacion principal">
-        <div className="sidebar-brand">
-          <span className="sidebar-logo">
-            <i className="bi bi-gem"></i>
-          </span>
-          <strong>Wallpaper <span>Gallery</span></strong>
-        </div>
+    <ErrorBoundary>
+      <div className="app">
+        <aside className="app-sidebar" aria-label="Navegacion principal">
+          <div className="sidebar-brand">
+            <span className="sidebar-logo">
+              <i className="bi bi-gem"></i>
+            </span>
+            <strong>Wallpaper <span>Gallery</span></strong>
+          </div>
 
-        <nav className="sidebar-nav">
-          {NAV_ITEMS.map(item => (
+          <nav className="sidebar-nav">
+            {NAV_ITEMS.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                className={`sidebar-link ${activeTab === item.id ? 'active' : ''}`}
+                onClick={() => handleNavigate(item.id)}
+                title={item.label}
+              >
+                <i className={`bi bi-${item.icon}`}></i>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="sidebar-footer">
             <button
-              key={item.id}
               type="button"
-              className={`sidebar-link ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => handleNavigate(item.id)}
-              title={item.label}
+              className="sidebar-create"
+              onClick={() => handleNavigate('steam')}
+              title="Crear Wallpaper"
             >
-              <i className={`bi bi-${item.icon}`}></i>
-              <span>{item.label}</span>
+              <i className="bi bi-cloud-arrow-up"></i>
+              <span>Crear Wallpaper</span>
+              <i className="bi bi-plus-lg"></i>
             </button>
-          ))}
-        </nav>
+            <small>
+              <span>© 2024 Wallpaper Gallery</span>
+              <span>Todos los derechos reservados.</span>
+            </small>
+          </div>
+        </aside>
 
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className="sidebar-create"
-            onClick={() => handleNavigate('steam')}
-            title="Crear Wallpaper"
-          >
-            <i className="bi bi-cloud-arrow-up"></i>
-            <span>Crear Wallpaper</span>
-            <i className="bi bi-plus-lg"></i>
-          </button>
-          <small>
-            <span>© 2024 Wallpaper Gallery</span>
-            <span>Todos los derechos reservados.</span>
-          </small>
-        </div>
-      </aside>
+        <Header
+          activeTab={activeTab}
+          searchQuery={searchQuery}
+          onSearch={setSearchQuery}
+          selectedCategory={selectedCategory}
+          onCategorySelect={setSelectedCategory}
+          workshopFilters={workshopFilters}
+          onWorkshopFiltersChange={updateWorkshopFilters}
+          onResetWorkshopFilters={handleResetWorkshopFilters}
+          notifications={notifications}
+          onRemoveNotification={removeNotification}
+          onClearNotifications={clearNotifications}
+          onMarkNotificationsRead={markNotificationsRead}
+          onUpload={() => handleNavigate('steam')}
+          onOpenProfile={() => handleNavigate('users')}
+          showTitle={false}
+        />
+        <Suspense
+          fallback={(
+            <LoadingScreen
+              isVisible={true}
+              title="Cargando vista..."
+              subtitle="Preparando la sección seleccionada"
+              type="spinner"
+              fullScreen={false}
+            />
+          )}
+        >
+          <div className="container">
+            {activeTab === 'home' && (
+              <Home
+                search={searchQuery}
+                onSearch={setSearchQuery}
+                showMatureContent={showMatureContent}
+                onNavigate={handleNavigate}
+                onOpenSteam={() => handleNavigate('steam')}
+                onOpenGallery={openGallery}
+                onOpenAuthors={() => handleNavigate('authors')}
+              />
+            )}
 
-      <Header
-        activeTab={activeTab}
-        searchQuery={searchQuery}
-        onSearch={setSearchQuery}
-        selectedCategory={selectedCategory}
-        onCategorySelect={setSelectedCategory}
-        workshopFilters={workshopFilters}
-        onWorkshopFiltersChange={updateWorkshopFilters}
-        onResetWorkshopFilters={resetWorkshopFilters}
-        notifications={notifications}
-        onRemoveNotification={removeNotification}
-        onClearNotifications={clearNotifications}
-        onMarkNotificationsRead={markNotificationsRead}
-        onUpload={() => handleNavigate('steam')}
-        onOpenProfile={() => handleNavigate('users')}
-        showTitle={false}
-      />
-      <div className="container">
-        {activeTab === 'home' && (
-          <Home
-            search={searchQuery}
-            onSearch={setSearchQuery}
-            showMatureContent={showMatureContent}
-            onNavigate={handleNavigate}
-            onOpenSteam={() => handleNavigate('steam')}
-            onOpenGallery={openGallery}
-            onOpenAuthors={() => handleNavigate('authors')}
-          />
-        )}
+            {showGallery && (
+              <Gallery
+                category={selectedCategory}
+                search={searchQuery}
+                initialFeed={galleryFeed}
+                showMatureContent={showMatureContent}
+              />
+            )}
 
-        {showGallery && (
-          <Gallery
-            category={selectedCategory}
-            search={searchQuery}
-            initialFeed={galleryFeed}
-            showMatureContent={showMatureContent}
-          />
-        )}
+            {activeTab === 'steam' && (
+              <SteamIntegration
+                searchQuery={searchQuery}
+                workshopFilters={workshopFilters}
+                onNotify={pushNotification}
+                onNavigate={handleNavigate}
+                showMatureContent={showMatureContent}
+              />
+            )}
 
-        {activeTab === 'steam' && (
-          <SteamIntegration
-            searchQuery={searchQuery}
-            workshopFilters={workshopFilters}
-            onNotify={pushNotification}
-            onNavigate={handleNavigate}
-            showMatureContent={showMatureContent}
-          />
-        )}
+            {activeTab === 'favorites' && (
+              <SteamIntegration
+                favoritesOnly
+                searchQuery={searchQuery}
+                workshopFilters={workshopFilters}
+                onNotify={pushNotification}
+                onNavigate={handleNavigate}
+                showMatureContent={showMatureContent}
+              />
+            )}
 
-        {activeTab === 'favorites' && (
-          <SteamIntegration
-            favoritesOnly
-            searchQuery={searchQuery}
-            workshopFilters={workshopFilters}
-            onNotify={pushNotification}
-            onNavigate={handleNavigate}
-            showMatureContent={showMatureContent}
-          />
-        )}
+            {showUsers && (
+              <SteamUsersManager />
+            )}
 
-        {showUsers && (
-          <SteamUsersManager />
-        )}
+            {activeTab === 'authors' && (
+              <AuthorsExplorer
+                searchQuery={searchQuery}
+                showMatureContent={showMatureContent}
+              />
+            )}
 
-        {activeTab === 'authors' && (
-          <AuthorsExplorer
-            searchQuery={searchQuery}
-            showMatureContent={showMatureContent}
-          />
-        )}
-
-        {activeTab === 'settings' && (
-          <Settings
-            showMatureContent={showMatureContent}
-            onMatureContentChange={updateMatureContentPreference}
-          />
-        )}
+            {activeTab === 'settings' && (
+              <Settings
+                showMatureContent={showMatureContent}
+                onMatureContentChange={updateMatureContentPreference}
+              />
+            )}
+          </div>
+        </Suspense>
+        {notificationStack}
       </div>
-      {notificationStack}
-    </div>
+    </ErrorBoundary>
   );
 }
 
