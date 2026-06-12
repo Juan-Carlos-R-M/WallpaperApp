@@ -128,15 +128,17 @@ const WorkshopCard = ({
           </>
         ) : isDownloaded ? (
           <>
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={isDownloading || !downloaderReady}
-              className="repair-wallpaper-btn"
-            >
-              <i className={`bi bi-arrow-repeat ${isDownloading ? 'spin-icon' : ''}`}></i>
-              {isDownloading ? 'Reparando...' : 'Reparar'}
-            </button>
+            {/^\d+$/.test(getWallpaperId(wallpaper)) && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={isDownloading || !downloaderReady}
+                className="repair-wallpaper-btn"
+              >
+                <i className={`bi bi-arrow-repeat ${isDownloading ? 'spin-icon' : ''}`}></i>
+                {isDownloading ? 'Reparando...' : 'Reparar'}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleDelete}

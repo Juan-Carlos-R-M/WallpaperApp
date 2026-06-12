@@ -179,28 +179,15 @@ const Gallery = ({
         return;
       }
 
-      const params = new URLSearchParams({ page: pageNum, limit: PAGE_SIZE });
-      if (category) params.append('category', category);
-      if (search) params.append('search', search);
+      // Fallback a mock data si no hay Electron API
+      const filtered = filterDesktopWallpapers(getLocalWallpapers() || []);
+      const start = (pageNum - 1) * PAGE_SIZE;
+      const nextPage = filtered.slice(start, start + PAGE_SIZE);
 
-      const response = await axios.get(wallpapersUrl(`?${params}`));
-      const nextItems = (response.data.data || [])
-        .map(enrichWallpaperMetadata)
-        .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
-
-      setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
-      setHasMore(response.data.pagination.page < response.data.pagination.pages);
+      setWallpapers(current => reset ? nextPage : [...current, ...nextPage]);
+      setHasMore(start + PAGE_SIZE < filtered.length);
       setPage(pageNum);
-      setError(null);
     } catch (err) {
-      console.error('Error fetching wallpapers:', err);
-      const fallback = getLocalWallpapers({ page: pageNum, limit: PAGE_SIZE, category, search });
-      const nextItems = fallback.data
-        .map(enrichWallpaperMetadata)
-        .filter(wallpaper => canShowWallpaper(wallpaper, showMatureContent));
-
-      setWallpapers(current => reset ? nextItems : [...current, ...nextItems]);
-      setHasMore(fallback.pagination.page < fallback.pagination.pages);
       setPage(pageNum);
       setError(null);
     } finally {

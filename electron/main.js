@@ -226,7 +226,17 @@ const log = (message, error) => {
 
   try {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
-    fs.appendFileSync(getLogPath(), line);
+    const logPath = getLogPath();
+
+    // Limitar el tamaño del archivo log a 10MB para prevenir bloqueos de E/S síncronas
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      if (stats.size > 10 * 1024 * 1024) { // 10 MB
+        fs.writeFileSync(logPath, `[${new Date().toISOString()}] Log truncado por exceso de tamaño (>10MB)\n`);
+      }
+    }
+
+    fs.appendFileSync(logPath, line);
   } catch {
     // Logging must never prevent app startup.
   }
@@ -506,7 +516,7 @@ const createWindow = () => {
     log(`Renderer process gone: ${JSON.stringify(details)}`);
   });
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (level >= 2) {
+    if (level >= 0) {
       log(`Renderer console level=${level} ${sourceId}:${line} ${message}`);
     }
   });
@@ -654,7 +664,16 @@ ipcMain.handle('search-workshop-wallpapers', async (_event, options) => {
   try {
     log(`Workshop search requested query="${options?.query || ''}" page=${options?.page || 1}`);
     const results = await workshopService.searchWallpapers(options);
-    return { success: true, data: results };
+    
+    // DIAGNOSTIC: Test serializability to prevent silent IPC drops
+    try {
+      const safeResults = JSON.parse(JSON.stringify(results));
+      return { success: true, data: safeResults };
+    } catch (serializeErr) {
+      log('IPC Serialization Error in search-workshop-wallpapers:', serializeErr.message);
+      console.error('IPC Serialization Error in search-workshop-wallpapers:', serializeErr);
+      return { success: false, error: 'Serialization error: ' + serializeErr.message };
+    }
   } catch (error) {
     log('Error searching Workshop wallpapers:', error);
     console.error('Error searching Workshop wallpapers:', error);

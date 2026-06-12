@@ -7,34 +7,45 @@ const LOCAL_MEDIA_PROTOCOL = 'local-media';
 const DATA_URL_MAX_BYTES = 15 * 1024 * 1024;
 
 class SteamReader {
-  constructor({ additionalProjectRoots = [] } = {}) {
+  constructor({ additionalProjectRoots = [], logger = () => {} } = {}) {
     this.steamPath = null;
     this.additionalProjectRoots = additionalProjectRoots;
+    this.logger = logger;
     try {
-      this.steamPathPromise = Promise.resolve(SteamReader.getSteamInstallPath())
+      this.logger('[SteamReader] Resolviendo ruta de Steam en constructor...');
+      this.steamPathPromise = SteamReader.getSteamInstallPath()
         .then(steamPath => {
+          this.logger(`[SteamReader] Ruta de Steam resuelta: ${steamPath}`);
           this.steamPath = steamPath;
           return steamPath;
         })
-        .catch(() => null);
-    } catch {
+        .catch((err) => {
+          this.logger(`[SteamReader] Error resolviendo ruta de Steam: ${err.message}`);
+          return null;
+        });
+    } catch (err) {
+      this.logger(`[SteamReader] Excepción en constructor: ${err.message}`);
       this.steamPathPromise = Promise.resolve(null);
     }
   }
 
-  static getSteamInstallPath() {
-    const username = os.userInfo().username;
-    
+  static async getSteamInstallPath() {
     // Rutas comunes de Steam en Windows
     const commonPaths = [
       `C:\\Program Files (x86)\\Steam`,
       `C:\\Program Files\\Steam`,
-      `${process.env.PROGRAMFILES}\\Steam`,
-      `${process.env.PROGRAMFILES} (x86)\\Steam`,
-      // Si usuario cambió la ubicación, intentar desde el registro
-    ];
+      `${process.env.PROGRAMFILES || 'C:\\Program Files'}\\Steam`,
+      `${process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)'}\\Steam`
+    ].filter(Boolean);
 
-    // Intentar leer desde el registro de Windows
+    // 1. Intentar rutas comunes primero (ultra rápido y síncrono)
+    for (const p of commonPaths) {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    }
+
+    // 2. Si no está en las rutas comunes, intentar leer desde el registro con timeout de 2s
     try {
       const Registry = require('winreg');
       const regKey = new Registry({
@@ -42,29 +53,23 @@ class SteamReader {
         key: '\\Software\\Valve\\Steam'
       });
       
-      return new Promise((resolve, reject) => {
+      return await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Límite de tiempo excedido consultando el registro de Steam'));
+        }, 2000);
+
         regKey.get('SteamPath', (err, item) => {
+          clearTimeout(timer);
           if (err) {
-            // Si el registro no funciona, buscar en rutas comunes
-            for (const p of commonPaths) {
-              if (fs.existsSync(p)) {
-                resolve(p);
-                return;
-              }
-            }
-            reject(new Error('Steam no encontrado'));
-          } else {
+            reject(err);
+          } else if (item && item.value && fs.existsSync(item.value)) {
             resolve(item.value);
+          } else {
+            reject(new Error('La ruta de Steam del registro no existe o es inválida'));
           }
         });
       });
     } catch (error) {
-      // Si no hay winreg, buscar en rutas comunes
-      for (const p of commonPaths) {
-        if (fs.existsSync(p)) {
-          return p;
-        }
-      }
       throw new Error('Steam no encontrado');
     }
   }
@@ -136,8 +141,13 @@ class SteamReader {
 
   async getSteamWallpapers() {
     try {
+      this.logger('[SteamReader] Iniciando getSteamWallpapers...');
       const steamPath = this.steamPath || await this.steamPathPromise;
+      this.logger(`[SteamReader] steamPath: ${steamPath}`);
+      
+      this.logger('[SteamReader] Obteniendo rutas de Wallpaper Engine...');
       const enginePaths = await SteamReader.getWallpaperEnginePaths();
+      this.logger(`[SteamReader] enginePaths resueltos: ${JSON.stringify(enginePaths)}`);
       
       const wallpaperEnginePath = enginePaths.myProjectsPath || path.join(
         os.homedir(),
@@ -146,31 +156,41 @@ class SteamReader {
         'Wallpaper Engine',
         'projects'
       );
+      
       const roots = [
         fs.existsSync(wallpaperEnginePath) ? wallpaperEnginePath : null,
         ...(enginePaths.workshopContentPaths || []),
         ...this.additionalProjectRoots
       ].filter(Boolean);
 
+      this.logger(`[SteamReader] Raíces a escanear (${roots.length}): ${roots.join(', ')}`);
+
       const wallpapers = this.readWallpapersFromRoots(roots);
+      this.logger(`[SteamReader] Escaneo completado. Encontrados ${wallpapers.length} wallpapers en raíces.`);
+      
       if (wallpapers.length > 0) {
         return wallpapers;
       }
 
       if (!fs.existsSync(wallpaperEnginePath)) {
-        console.log('Wallpaper Engine no encontrado, intentando ruta de Steam...');
-        return this.getWallpapersFromSteam(steamPath);
+        this.logger(`[SteamReader] Wallpaper Engine projects path no existe (${wallpaperEnginePath}). Intentando ruta de Steam...`);
+        const fallbackWallpapers = this.getWallpapersFromSteam(steamPath);
+        this.logger(`[SteamReader] Encontrados ${fallbackWallpapers.length} wallpapers en ruta fallback de Steam.`);
+        return fallbackWallpapers;
       }
 
       return [];
     } catch (error) {
+      this.logger(`[SteamReader] ❌ Error leyendo wallpapers de Steam: ${error.stack || error.message}`);
       console.error('Error reading Steam wallpapers:', error);
       return [];
     }
   }
 
   async getDownloadedWallpapers() {
+    this.logger('[SteamReader] Iniciando getDownloadedWallpapers...');
     const appDownloads = this.readWallpapersFromRoots(this.additionalProjectRoots.filter(Boolean));
+    this.logger(`[SteamReader] Descargas de la app: ${appDownloads.length} wallpapers`);
     return appDownloads.length > 0 ? appDownloads : this.getSteamWallpapers();
   }
 
@@ -178,7 +198,6 @@ class SteamReader {
     try {
       if (!steamPath) return [];
 
-      // Ruta de Wallpaper Engine en Steam
       const weContentPath = path.join(
         steamPath,
         'steamapps\\common\\wallpaper_engine'
@@ -189,26 +208,34 @@ class SteamReader {
         .map(library => path.join(library, 'steamapps', 'workshop', 'content', WALLPAPER_ENGINE_APP_ID))
         .filter(candidate => fs.existsSync(candidate));
 
+      this.logger(`[SteamReader] Rutas fallback de Steam a escanear (${roots.length}): ${roots.join(', ')}`);
+
       if (roots.length > 0) {
         return this.readWallpapersFromRoots(roots);
       }
 
       if (fs.existsSync(weContentPath)) {
+        this.logger(`[SteamReader] Escaneando weContentPath: ${weContentPath}`);
         return this.readWallpapersFromDirectory(weContentPath);
       }
 
       return [];
     } catch (error) {
+      this.logger(`[SteamReader] Error en getWallpapersFromSteam: ${error.message}`);
       console.error('Error getting wallpapers from Steam:', error);
       return [];
     }
   }
 
-  readWallpapersFromDirectory(dirPath) {
+  readWallpapersFromDirectory(dirPath, depth = 0) {
     const wallpapers = [];
 
     try {
       if (!fs.existsSync(dirPath)) return wallpapers;
+      if (depth > 5) {
+        this.logger(`[SteamReader] ⚠️ Límite de profundidad (5) alcanzado en ${dirPath}`);
+        return wallpapers;
+      }
 
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
@@ -225,22 +252,23 @@ class SteamReader {
                 wallpapers.push(wallpaper);
               }
             } catch (error) {
-              console.error(`Error parsing wallpaper config in ${entry.name}:`, error);
+              this.logger(`[SteamReader] Error parsing config in ${entry.name}: ${error.message}`);
             }
           } else {
-            wallpapers.push(...this.readWallpapersFromDirectory(projectPath));
+            wallpapers.push(...this.readWallpapersFromDirectory(projectPath, depth + 1));
           }
         }
       });
 
       return wallpapers;
     } catch (error) {
-      console.error('Error reading wallpapers directory:', error);
+      this.logger(`[SteamReader] Error leyendo directorio ${dirPath}: ${error.message}`);
       return wallpapers;
     }
   }
 
   readWallpapersFromRoots(roots) {
+    this.logger(`[SteamReader] Leyendo wallpapers desde ${roots.length} raíces...`);
     const seen = new Set();
     const wallpapers = [];
 
@@ -253,6 +281,7 @@ class SteamReader {
       });
     });
 
+    this.logger(`[SteamReader] Total de wallpapers únicos leídos de raíces: ${wallpapers.length}`);
     return wallpapers;
   }
 
@@ -349,7 +378,7 @@ class SteamReader {
       }
 
       return {
-        publishedFileId: /^\d+$/.test(String(folderName)) ? String(folderName) : '',
+        publishedFileId: /^\d+$/.test(String(folderName)) ? String(folderName) : (folderName || ''),
         title,
         description,
         author,
@@ -406,7 +435,7 @@ class SteamReader {
   }
 
   toDisplayUrl(filePath) {
-    return this.toDataUrl(filePath) || this.toLocalMediaUrl(filePath);
+    return this.toLocalMediaUrl(filePath);
   }
 
   toDataUrl(filePath) {

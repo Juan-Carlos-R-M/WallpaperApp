@@ -21,6 +21,25 @@ class WorkshopService {
     this.apiKey = process.env.STEAM_WEB_API_KEY || process.env.STEAM_API_KEY || '';
   }
 
+  // Convierte el sort string a queryType para IPublishedFileService/QueryFiles
+  // Valores según EPublishedFileQueryType de la Steam Web API:
+  sortToQueryType(sort) {
+    const map = {
+      trend:     0,   // k_PublishedFileQueryType_RankedByVote (trending)
+      popular:   7,   // k_PublishedFileQueryType_RankedByTotalUniqueSubscriptions
+      recent:    1,   // k_PublishedFileQueryType_RankedByPublicationDate
+      favorites: 11,  // k_PublishedFileQueryType_RankedByTotalVotesDesc
+      updated:   10,  // k_PublishedFileQueryType_RankedByLastUpdatedDate
+    };
+    return map[sort] !== undefined ? map[sort] : 0;
+  }
+
+  // Convierte el filtro de tiempo a days para la API de Steam
+  timeToDaysApi(time) {
+    const map = { week: 7, month: 30, quarter: 90, year: 365 };
+    return map[time] || 0;
+  }
+
   async searchWallpapers({
     query = '',
     page = 1,
@@ -48,8 +67,6 @@ class WorkshopService {
       const items = await this.getWorkshopItemsByIds(ids);
       this.logger(`[searchWallpapers] Obtenidos ${items.length} items de ${ids.length} IDs`);
       
-      // hasMore es true SOLO si obtuvimos exactamente el límite solicitado
-      // Si obtenemos MENOS items que el límite, significa que alcanzamos el final
       const hasMore = ids.length === Number(limit) && items.length > 0;
       const total = hasMore
         ? (Number(page) * Number(limit)) + 1
@@ -67,6 +84,41 @@ class WorkshopService {
       this.logger(`[searchWallpapers] ❌ ERROR: ${error.message}`);
       throw error;
     }
+  }
+
+
+
+  /**
+   * Búsqueda con múltiples tags en modo OR: hace múltiples consultas y combina resultados.
+   */
+  async searchWallpapersMultiTag({ query, page, limit, sort, time, requiredTags }) {
+    const tags = [...new Set(requiredTags.filter(Boolean))];
+    const seen = new Set();
+    const allItems = [];
+
+    for (const tag of tags) {
+      try {
+        const result = await this.searchWallpapers({ query, page, limit, sort, time, requiredTags: [tag], matchAllTags: true });
+        for (const item of result.data) {
+          const id = item.publishedFileId;
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          allItems.push(item);
+          if (allItems.length >= Number(limit)) break;
+        }
+      } catch (e) {
+        this.logger(`[searchWallpapersMultiTag] Error con tag "${tag}": ${e.message}`);
+      }
+      if (allItems.length >= Number(limit)) break;
+    }
+
+    const hasMore = allItems.length >= Number(limit);
+    return {
+      total: hasMore ? allItems.length + 1 : allItems.length,
+      page,
+      hasMore,
+      data: allItems.slice(0, Number(limit))
+    };
   }
 
   async fetchWorkshopIdsFromSearch({
@@ -690,7 +742,21 @@ class WorkshopService {
   getJson(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
       const requestUrl = this.normalizeSteamUrl(url);
-      https.get(requestUrl, { headers: this.requestHeaders() }, res => {
+      const timeoutMs = 25000; // 25s — Steam API puede ser lento
+      let settled = false;
+
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(value);
+      };
+
+      const timer = setTimeout(() => {
+        request.destroy(new Error(`Steam API no respondio en ${timeoutMs}ms (${requestUrl})`));
+      }, timeoutMs);
+
+      const request = https.get(requestUrl, { headers: this.requestHeaders() }, res => {
         let body = '';
 
         if (this.isRedirect(res.statusCode)) {
@@ -698,17 +764,17 @@ class WorkshopService {
           res.resume();
 
           if (!redirectUrl) {
-            reject(new Error(`Steam API redirigio sin ubicacion (${res.statusCode})`));
+            finish(reject, new Error(`Steam API redirigio sin ubicacion (${res.statusCode})`));
             return;
           }
 
           if (redirectCount >= MAX_REDIRECTS) {
-            reject(new Error(`Steam API redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
+            finish(reject, new Error(`Steam API redirigio demasiadas veces. Ultima ubicacion: ${redirectUrl}`));
             return;
           }
 
           this.logger(`Steam API redirect ${res.statusCode}: ${requestUrl} -> ${redirectUrl}`);
-          this.getJson(redirectUrl, redirectCount + 1).then(resolve, reject);
+          finish(resolve, this.getJson(redirectUrl, redirectCount + 1));
           return;
         }
 
@@ -718,17 +784,19 @@ class WorkshopService {
 
         res.on('end', () => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`Steam API respondio ${res.statusCode}`));
+            finish(reject, new Error(`Steam API respondio ${res.statusCode}`));
             return;
           }
 
           try {
-            resolve(JSON.parse(body));
+            finish(resolve, JSON.parse(body));
           } catch (error) {
-            reject(new Error(`Respuesta invalida de Steam: ${error.message}`));
+            finish(reject, new Error(`Respuesta invalida de Steam: ${error.message}`));
           }
         });
-      }).on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
+      });
+
+      request.on('error', error => finish(reject, this.friendlyNetworkError(error, requestUrl)));
     });
   }
 
@@ -736,6 +804,20 @@ class WorkshopService {
     return new Promise((resolve, reject) => {
       const requestUrl = this.normalizeSteamUrl(url);
       const postData = params.toString();
+      const timeoutMs = 15000;
+      let settled = false;
+
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(value);
+      };
+
+      const timer = setTimeout(() => {
+        request.destroy(new Error(`Steam API no respondio en ${timeoutMs}ms (${requestUrl})`));
+      }, timeoutMs);
+
       const request = https.request(requestUrl, {
         method: 'POST',
         headers: {
@@ -752,19 +834,19 @@ class WorkshopService {
 
         res.on('end', () => {
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            reject(new Error(`Steam API respondio ${res.statusCode}`));
+            finish(reject, new Error(`Steam API respondio ${res.statusCode}`));
             return;
           }
 
           try {
-            resolve(JSON.parse(body));
+            finish(resolve, JSON.parse(body));
           } catch (error) {
-            reject(new Error(`Respuesta invalida de Steam: ${error.message}`));
+            finish(reject, new Error(`Respuesta invalida de Steam: ${error.message}`));
           }
         });
       });
 
-      request.on('error', error => reject(this.friendlyNetworkError(error, requestUrl)));
+      request.on('error', error => finish(reject, this.friendlyNetworkError(error, requestUrl)));
       request.write(postData);
       request.end();
     });

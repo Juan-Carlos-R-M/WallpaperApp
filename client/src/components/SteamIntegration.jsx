@@ -85,6 +85,8 @@ const SteamIntegration = ({
   const [selectedAuthorId, setSelectedAuthorId] = useState(null);
   const [favoriteContentTab, setFavoriteContentTab] = useState('normal');
   const [favoriteSortTab, setFavoriteSortTab] = useState('recent');
+  // Safety: force-dismiss loading screen after max 10s regardless of state
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const loadMoreRef = useRef(null);
   const listScrollYRef = useRef(0);
   const scrollStateRef = useRef({
@@ -101,6 +103,7 @@ const SteamIntegration = ({
   const lastLoadedPageRef = useRef(0);
   const hasInitialSearchedRef = useRef(false);
   const cleanupTimeoutRef = useRef(null);
+  const loadingTimeoutRef = useRef(null);
   const scrollLockRef = useRef(false);
 
   const pushNotification = useCallback((message, type = 'error', extra = {}) => {
@@ -339,7 +342,7 @@ const SteamIntegration = ({
     
     // Hacer búsqueda sin delay
     searchWorkshop(null, {
-      query: '',
+      query: searchQuery || '',
       filters: workshopFilters,
       page: 1,
       append: false
@@ -752,6 +755,10 @@ const SteamIntegration = ({
         clearTimeout(cleanupTimeoutRef.current);
         cleanupTimeoutRef.current = null;
       }
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -772,19 +779,39 @@ const SteamIntegration = ({
     />
   ), [downloadedById, favoriteIds, downloadingId, deletingId, downloaderReady, openDetailWallpaper, downloadWorkshopWallpaper, deleteWorkshopWallpaper, repairWorkshopWallpaper, toggleFavorite, workshopLoading]);
 
-  const showInitialLoading = !favoritesOnly && loading && steamWallpapers.length === 0 && workshopWallpapers.length === 0;
+  // Auto-dismiss the loading screen after 10s to prevent infinite loading
+  useEffect(() => {
+    if (favoritesOnly) return undefined;
+    // Start timeout when loading begins
+    const isCurrentlyLoading = loading || workshopLoading;
+    if (!isCurrentlyLoading) {
+      // Loading finished, clear any pending timeout and reset
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setLoadingTimedOut(false);
+      return undefined;
+    }
+
+    if (loadingTimeoutRef.current) return undefined; // already counting
+
+    loadingTimeoutRef.current = setTimeout(() => {
+      loadingTimeoutRef.current = null;
+      console.warn('[SteamIntegration] ⚠️ Loading screen auto-dismissed after 35s (safety)');
+      setLoadingTimedOut(true);
+    }, 35000);
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [favoritesOnly, loading, workshopLoading]);
 
   return (
     <>
-      {/* Pantalla de carga fullscreen cuando se carga por primera vez */}
-      <LoadingScreen
-        isVisible={showInitialLoading}
-        title="Cargando Steam Workshop..."
-        subtitle="Estamos preparando tus wallpapers"
-        type="spinner"
-        fullScreen={true}
-      />
-
       {!window.electronAPI ? (
         <div className="steam-integration-message">
           <i className="bi bi-pc-display"></i>

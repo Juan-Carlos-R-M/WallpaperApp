@@ -306,6 +306,8 @@ export const useSteamWorkshop = ({
     const maxRetries = 3;
     let retries = 0;
     let lastError;
+    // Safety timeout: if loading gets stuck for >30s, force-clear it
+    let safetyTimeoutId = null;
 
     if (loadRetryTimeoutRef.current) {
       clearTimeout(loadRetryTimeoutRef.current);
@@ -315,12 +317,8 @@ export const useSteamWorkshop = ({
     const attemptLoad = async () => {
       try {
         if (!steamService.hasElectronApi()) {
-          const message = 'No estás en versión de escritorio. Algunos features no disponibles.';
-          if (!isMountedRef.current || loadRequestIdRef.current !== requestId) return;
-          setError(message);
-          pushNotification(message, 'error');
-          
-          // Cargar desde cache como fallback
+          console.log('[Steam] Sin Electron API, skip carga de wallpapers locales.');
+          // Cargar desde cache como fallback sin mostrar error
           const cached = loadSteamWallpapersCache();
           if (cached && cached.length > 0) {
             if (!isMountedRef.current || loadRequestIdRef.current !== requestId) return;
@@ -333,9 +331,29 @@ export const useSteamWorkshop = ({
         if (!isMountedRef.current || loadRequestIdRef.current !== requestId) return;
         setLoading(true);
         setError(null);
+
+        // Safety timeout: force-clear loading after 30s no matter what
+        safetyTimeoutId = setTimeout(() => {
+          safetyTimeoutId = null;
+          if (isMountedRef.current && loadRequestIdRef.current === requestId) {
+            console.warn('[Steam] ⚠️ Safety timeout: forzando fin de loading (30s)');
+            setLoading(false);
+            loadInFlightRef.current = false;
+          }
+        }, 30000);
         
         console.log(`[Steam] Intentando cargar wallpapers (intento ${retries + 1}/${maxRetries})`);
-        const wallpapers = await steamService.getSteamWallpapers();
+        
+        let timeoutTimer;
+        const loadPromise = steamService.getSteamWallpapers();
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutTimer = setTimeout(() => {
+            reject(new Error('Límite de tiempo de espera de Steam excedido (8s)'));
+          }, 8000);
+        });
+
+        const wallpapers = await Promise.race([loadPromise, timeoutPromise]);
+        clearTimeout(timeoutTimer);
         
         // Normalizar wallpapers descargados también
         const normalized = (Array.isArray(wallpapers) ? wallpapers : [])
@@ -375,7 +393,7 @@ export const useSteamWorkshop = ({
         
         if (retries < maxRetries) {
           // Esperar progresivamente más tiempo entre reintentos
-          const delayMs = 1000 * retries; // 1s, 2s, 3s
+          const delayMs = 800 * retries; // 0.8s, 1.6s
           console.log(`[Steam] Reintentando en ${delayMs}ms...`);
           await new Promise(resolve => {
             loadRetryTimeoutRef.current = setTimeout(() => {
@@ -399,11 +417,15 @@ export const useSteamWorkshop = ({
             const message = `Error cargando Steam: ${err.message}. No hay datos en caché.`;
             if (!isMountedRef.current || loadRequestIdRef.current !== requestId) return;
             setError(message);
-            pushNotification(message, 'error');
             setSteamWallpapers([]);
           }
         }
       } finally {
+        // Always cancel the safety timeout if we reach here normally
+        if (safetyTimeoutId !== null) {
+          clearTimeout(safetyTimeoutId);
+          safetyTimeoutId = null;
+        }
         if (isMountedRef.current && loadRequestIdRef.current === requestId) {
           setLoading(false);
         }
@@ -522,11 +544,10 @@ export const useSteamWorkshop = ({
         showMatureContent
       });
 
-      // Timeout mayor y reintentos con backoff solo para infinite scroll (page 2+ / append)
-      // para tolerar Steam Community lento / intermitente.
+      // Timeout para esperar a la Steam API (puede ser lento).
+      // Backend tiene 25s, así que damos 30s aquí para que el backend responda primero.
       const timeoutPromise = new Promise((_, reject) => {
-        // Para página 1 mantenemos más agresivo; para append (scroll) damos más margen.
-        const timeoutMs = append ? 35000 : 20000;
+        const timeoutMs = append ? 35000 : 30000;
         searchTimeoutRef.current = setTimeout(() => {
           searchTimeoutRef.current = null;
           reject(new Error(`Timeout: la búsqueda tardó demasiado (>${Math.round(timeoutMs / 1000)}s)`));
@@ -534,7 +555,12 @@ export const useSteamWorkshop = ({
       });
 
 
-      const data = await Promise.race([searchPromise, timeoutPromise]);
+      console.log(`[Workshop] Esperando respuesta de IPC para página ${nextPage}...`);
+      const data = await Promise.race([searchPromise, timeoutPromise]).catch(err => {
+        console.error('[Workshop] ❌ Promise.race REJECTED:', err);
+        throw err;
+      });
+      console.log(`[Workshop] ✅ Promise.race RESOLVED con datos:`, data ? Object.keys(data) : 'null');
 
       if (!isMountedRef.current || searchRequestIdRef.current !== requestId) {
         return;
@@ -1089,10 +1115,12 @@ export const useSteamWorkshop = ({
     loadVaultAccounts();
   }, [checkDownloaderStatus, checkSteamPath, loadSteamWallpapers, loadVaultAccounts]);
 
-  useEffect(() => () => {
-    isMountedRef.current = false;
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
 
-    if (loadRetryTimeoutRef.current) {
+      if (loadRetryTimeoutRef.current) {
       clearTimeout(loadRetryTimeoutRef.current);
       loadRetryTimeoutRef.current = null;
     }
@@ -1106,6 +1134,7 @@ export const useSteamWorkshop = ({
       clearTimeout(prefetchNextPageRef.current);
       prefetchNextPageRef.current = null;
     }
+    };
   }, []);
 
   useEffect(() => {
