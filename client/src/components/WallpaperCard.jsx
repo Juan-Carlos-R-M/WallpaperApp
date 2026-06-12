@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import MediaPlayer from './MediaPlayer';
 import DownloadModal from './DownloadModal';
+import ContextMenu from './ContextMenu';
 import { downloadWallpaperAsset } from '../utils/downloadWallpaper';
 import {
   enrichWallpaperMetadata,
@@ -19,6 +20,8 @@ const WallpaperCard = memo(({
   onDelete,
   onDownload,
   onSubscribe,
+  isFavorite,
+  onToggleFavorite,
   repairing = false,
   deleting = false
 }) => {
@@ -27,11 +30,47 @@ const WallpaperCard = memo(({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadedOverride, setDownloadedOverride] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
   const cardRef = useRef(null);
 
   const displayWallpaper = enrichWallpaperMetadata(wallpaper);
+  const wallpaperId = getWallpaperId(displayWallpaper);
   const isDownloaded = downloadedOverride || isDownloadedWallpaper(displayWallpaper);
   const mediaType = isVideoWallpaper(displayWallpaper) ? 'video' : String(displayWallpaper.mediaType || 'image').toLowerCase();
+
+  const [isFavoriteState, setIsFavoriteState] = useState(() => {
+    if (typeof isFavorite === 'boolean') return isFavorite;
+    try {
+      const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
+      return favs.some(item => getWallpaperId(item) === wallpaperId);
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof isFavorite === 'boolean') {
+      setIsFavoriteState(isFavorite);
+      return;
+    }
+    // Si solo cambia el objeto pero el ID es el mismo, no recalculamos.
+    try {
+      const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
+      setIsFavoriteState(favs.some(item => getWallpaperId(item) === wallpaperId));
+    } catch {
+      setIsFavoriteState(false);
+    }
+  }, [isFavorite, wallpaperId]);
+
+  useEffect(() => {
+    const handleFavoritesUpdated = (e) => {
+      if (getWallpaperId(e.detail.wallpaper) === getWallpaperId(wallpaper)) {
+        setIsFavoriteState(e.detail.isFavorite);
+      }
+    };
+    window.addEventListener('favorites-updated', handleFavoritesUpdated);
+    return () => window.removeEventListener('favorites-updated', handleFavoritesUpdated);
+  }, [wallpaper]);
 
   useEffect(() => {
     setDownloadedOverride(false);
@@ -116,19 +155,12 @@ const WallpaperCard = memo(({
       }
     } catch (error) {
       console.error('Error downloading wallpaper:', error);
-      
-      // Formatear el error para que sea más legible
       let errorMessage = error.message || 'No se pudo descargar el wallpaper';
-      
-      // Si contiene saltos de línea, es probablemente un mensaje más detallado
       if (errorMessage.includes('\n')) {
-        // Mostrar en consola el mensaje completo
         console.error('Detalles del error de descarga:\n' + errorMessage);
-        // Y mostrar un resumen al usuario
         const lines = errorMessage.split('\n');
         errorMessage = lines.slice(0, 3).join('\n');
       }
-      
       alert(`Descarga fallida:\n\n${errorMessage}\n\nRevisa la consola para más detalles.`);
     } finally {
       setIsDownloading(false);
@@ -147,6 +179,42 @@ const WallpaperCard = memo(({
     deleteWallpaper();
   };
 
+  const handleToggleFavorite = (event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    if (onToggleFavorite) {
+      onToggleFavorite(wallpaper);
+      setIsFavoriteState(prev => !prev);
+    } else {
+      try {
+        const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
+        const id = getWallpaperId(wallpaper);
+        const exists = favs.some(item => getWallpaperId(item) === id);
+        let nextFavorites;
+        if (exists) {
+          nextFavorites = favs.filter(item => getWallpaperId(item) !== id);
+          setIsFavoriteState(false);
+        } else {
+          nextFavorites = [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...favs];
+          setIsFavoriteState(true);
+        }
+        localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
+        window.dispatchEvent(new CustomEvent('favorites-updated', { detail: { wallpaper, isFavorite: !exists } }));
+      } catch (err) {
+        console.error('Error toggling favorite:', err);
+      }
+    }
+  };
+
+  const handleContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY
+    });
+  };
+
   const formatNumber = (num) => {
     if (!num) return '0';
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -158,6 +226,63 @@ const WallpaperCard = memo(({
   const likes = displayWallpaper.favorited || displayWallpaper.likes || 0;
   const views = displayWallpaper.views || 0;
 
+  const contextMenuOptions = [
+    {
+      label: 'Ver detalles',
+      icon: 'info-circle',
+      onClick: () => onOpenDetails?.({ ...displayWallpaper, downloaded: isDownloaded })
+    },
+    isDownloaded && window.electronAPI?.setWallpaper ? {
+      label: 'Establecer como fondo',
+      icon: 'display',
+      onClick: async () => {
+        try {
+          const path = displayWallpaper.fileSystemPath || displayWallpaper.localPath || displayWallpaper.mediaUrl;
+          if (!path) throw new Error("No hay ruta de archivo válida");
+          const winPath = String(path).replace(/^local-media:\/\/[A-Z]\//i, (match) => {
+            return match.slice(14, 15) + ':/';
+          });
+          const success = await window.electronAPI.setWallpaper(winPath);
+          if (success) {
+            alert("¡Fondo de pantalla establecido!");
+          } else {
+            alert("No se pudo establecer el fondo.");
+          }
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
+      }
+    } : null,
+    {
+      label: isFavoriteState ? 'Quitar de Favoritos' : 'Añadir a Favoritos',
+      icon: isFavoriteState ? 'heart-fill' : 'heart',
+      active: isFavoriteState,
+      onClick: () => handleToggleFavorite()
+    },
+    !isDownloaded ? {
+      label: isDownloading ? 'Descargando...' : 'Descargar',
+      icon: 'download',
+      disabled: isDownloading,
+      onClick: () => handleDownload({ stopPropagation: () => {}, preventDefault: () => {} })
+    } : null,
+    isDownloaded ? {
+      label: repairing ? 'Reparando...' : 'Reparar',
+      icon: 'arrow-repeat',
+      disabled: repairing,
+      onClick: () => handleRepair({ stopPropagation: () => {}, preventDefault: () => {} })
+    } : null,
+    isDownloaded ? {
+      divider: true
+    } : null,
+    isDownloaded ? {
+      label: deleting ? 'Eliminando...' : 'Eliminar',
+      icon: 'trash',
+      danger: true,
+      disabled: deleting,
+      onClick: () => handleDelete({ stopPropagation: () => {}, preventDefault: () => {} })
+    } : null
+  ].filter(Boolean);
+
   return (
     <div
       ref={cardRef}
@@ -165,6 +290,7 @@ const WallpaperCard = memo(({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
     >
       {isVisible ? (
         <>
@@ -192,7 +318,15 @@ const WallpaperCard = memo(({
             type="button"
             className="card-more-btn"
             aria-label="Mas opciones"
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              const rect = event.currentTarget.getBoundingClientRect();
+              setContextMenu({
+                x: rect.left,
+                y: rect.bottom + window.scrollY
+              });
+            }}
           >
             <i className="bi bi-three-dots"></i>
           </button>
@@ -235,41 +369,49 @@ const WallpaperCard = memo(({
             </div>
 
             <div className="card-actions">
-              {isDownloaded ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleRepair}
-                    className="repair-btn"
-                    disabled={repairing}
-                    title="Reparar wallpaper"
-                  >
-                    <i className={`bi bi-arrow-repeat ${repairing ? 'spin-icon' : ''}`}></i>
-                    {repairing ? 'Reparando...' : 'Reparar'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    className="delete-btn"
-                    disabled={deleting}
-                    title="Eliminar wallpaper"
-                  >
-                    <i className={`bi bi-trash ${deleting ? 'spin-icon' : ''}`}></i>
-                    {deleting ? 'Eliminando...' : 'Eliminar'}
-                  </button>
-                </>
-              ) : (
+              <div className="card-actions-icon-row">
                 <button
                   type="button"
-                  onClick={handleDownload}
-                  className="download-btn"
-                  disabled={isDownloading}
-                  title="Descargar wallpaper"
+                  onClick={handleToggleFavorite}
+                  className={`action-icon-btn fav-btn ${isFavoriteState ? 'active' : ''}`}
+                  title={isFavoriteState ? 'Quitar de favoritos' : 'Añadir a favoritos'}
                 >
-                  <i className={`bi bi-download ${isDownloading ? 'spin-icon' : ''}`}></i>
-                  {isDownloading ? 'Descargando...' : 'Descargar'}
+                  <i className={`bi bi-heart${isFavoriteState ? '-fill' : ''}`}></i>
                 </button>
-              )}
+
+                {isDownloaded ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleRepair}
+                      className="action-icon-btn repair-btn"
+                      disabled={repairing}
+                      title="Reparar wallpaper"
+                    >
+                      <i className={`bi bi-arrow-repeat ${repairing ? 'spin-icon' : ''}`}></i>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      className="action-icon-btn delete-btn danger"
+                      disabled={deleting}
+                      title="Eliminar wallpaper"
+                    >
+                      <i className={`bi bi-trash ${deleting ? 'spin-icon' : ''}`}></i>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="action-icon-btn download-btn success"
+                    disabled={isDownloading}
+                    title="Descargar wallpaper"
+                  >
+                    <i className={`bi bi-download ${isDownloading ? 'spin-icon' : ''}`}></i>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </>
@@ -286,6 +428,15 @@ const WallpaperCard = memo(({
           onDelete={deleteWallpaper}
         />
       )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          options={contextMenuOptions}
+        />
+      )}
     </div>
   );
 });
@@ -293,3 +444,4 @@ const WallpaperCard = memo(({
 WallpaperCard.displayName = 'WallpaperCard';
 
 export default WallpaperCard;
+

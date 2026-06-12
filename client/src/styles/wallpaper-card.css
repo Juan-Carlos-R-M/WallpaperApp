@@ -459,3 +459,175 @@
 .wallpaper-card {
   animation: cardFadeIn 0.4s ease-out;
 }
+
+/* Rediseño de botones circulares en tarjetas */
+.card-actions-icon-row {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+}
+
+.action-icon-btn {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  border-radius: 50% !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all var(--transition-fast) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3) !important;
+  padding: 0 !important;
+  flex: none !important;
+  margin: 0 !important;
+}
+
+.action-icon-btn i {
+  font-size: 16px !important;
+  display: inline-flex !important;
+}
+
+.action-icon-btn:hover:not(:disabled) {
+  background: rgb(var(--color-accent-rgb) / 0.8) !important;
+  border-color: rgb(var(--color-accent-rgb) / 0.8) !important;
+  transform: translateY(-2px) scale(1.05) !important;
+  box-shadow: 0 6px 15px rgb(var(--color-accent-rgb) / 0.4) !important;
+}
+
+.action-icon-btn.fav-btn.active {
+  background: #ff4a5a !important;
+  border-color: #ff4a5a !important;
+  box-shadow: 0 4px 12px rgba(255, 74, 90, 0.4) !important;
+  color: white !important;
+}
+
+.action-icon-btn.fav-btn.active:hover:not(:disabled) {
+  background: #ff606e !important;
+  border-color: #ff606e !important;
+  box-shadow: 0 6px 18px rgba(255, 74, 90, 0.6) !important;
+}
+
+.action-icon-btn.fav-btn:not(.active):hover {
+  background: rgba(255, 74, 90, 0.2) !important;
+  border-color: rgba(255, 74, 90, 0.5) !important;
+  color: #ff4a5a !important;
+}
+
+.action-icon-btn.danger:hover:not(:disabled) {
+  background: #f44336 !important;
+  border-color: #f44336 !important;
+  box-shadow: 0 6px 15px rgba(244, 67, 54, 0.4) !important;
+  color: white !important;
+}
+
+.action-icon-btn.success:hover:not(:disabled) {
+  background: #4caf50 !important;
+  border-color: #4caf50 !important;
+  box-shadow: 0 6px 15px rgba(76, 175, 80, 0.4) !important;
+  color: white !important;
+}
+
+.action-icon-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Menú Contextual Premium */
+.custom-context-menu {
+  background: rgba(18, 18, 28, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  padding: 6px 0;
+  width: 220px;
+  animation: contextMenuFadeIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu-item {
+  width: 100%;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.18s ease;
+  border-left: 3px solid transparent;
+}
+
+.context-menu-item i {
+  font-size: 14px;
+  opacity: 0.65;
+  display: inline-flex;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: linear-gradient(90deg, rgba(230, 57, 70, 0.15) 0%, rgba(230, 57, 70, 0.03) 100%);
+  color: #ff4a5a;
+  border-left-color: #ff4a5a;
+  padding-left: 13px;
+}
+
+.context-menu-item:hover:not(:disabled) i {
+  color: #ff4a5a;
+  opacity: 1;
+}
+
+.context-menu-item.danger:hover:not(:disabled) {
+  background: linear-gradient(90deg, rgba(244, 67, 54, 0.15) 0%, rgba(244, 67, 54, 0.03) 100%);
+  color: #f44336;
+  border-left-color: #f44336;
+}
+
+.context-menu-item.danger:hover:not(:disabled) i {
+  color: #f44336;
+}
+
+.context-menu-item:disabled {
+  color: rgba(255, 255, 255, 0.3);
+  cursor: not-allowed;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}

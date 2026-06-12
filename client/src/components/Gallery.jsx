@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
 import WallpaperCard from './WallpaperCard';
 import WallpaperDetails from './WallpaperDetails';
 import AuthorProfile from './AuthorProfile';
-import { wallpapersUrl } from '../services/api';
 import { getLocalWallpapers } from '../data/sampleWallpapers';
 import { toPlayableUrl } from '../utils/mediaUrl';
 import { downloadWallpaperAsset } from '../utils/downloadWallpaper';
@@ -113,6 +111,7 @@ const Gallery = ({
       mediaUrl,
       playbackUrl: mediaUrl,
       previewUrl,
+      fileSystemPath: wallpaper.mediaUrl || wallpaper.localPath || wallpaper.path,
       preview: { url: previewUrl },
       image: { url: previewUrl },
       imageUrl: previewUrl,
@@ -154,6 +153,9 @@ const Gallery = ({
   }, [search, showMatureContent, normalizeDesktopWallpaper]);
 
   const fetchWallpapers = useCallback(async (pageNum = 1, reset = false) => {
+    // Evita estados inconsistentes cuando IntersectionObserver dispara rápido
+    if (loading) return;
+
     try {
       setLoading(true);
 
@@ -172,6 +174,13 @@ const Gallery = ({
         const start = (pageNum - 1) * PAGE_SIZE;
         const nextPage = filtered.slice(start, start + PAGE_SIZE);
 
+        // Si no hay elementos, marca hasMore=false para cortar el loader
+        if (!Array.isArray(nextPage) || nextPage.length === 0) {
+          setHasMore(false);
+          setPage(pageNum);
+          return;
+        }
+
         setWallpapers(current => reset ? nextPage : [...current, ...nextPage]);
         setHasMore(start + PAGE_SIZE < filtered.length);
         setPage(pageNum);
@@ -184,6 +193,12 @@ const Gallery = ({
       const start = (pageNum - 1) * PAGE_SIZE;
       const nextPage = filtered.slice(start, start + PAGE_SIZE);
 
+      if (!Array.isArray(nextPage) || nextPage.length === 0) {
+        setHasMore(false);
+        setPage(pageNum);
+        return;
+      }
+
       setWallpapers(current => reset ? nextPage : [...current, ...nextPage]);
       setHasMore(start + PAGE_SIZE < filtered.length);
       setPage(pageNum);
@@ -193,7 +208,7 @@ const Gallery = ({
     } finally {
       setLoading(false);
     }
-  }, [category, search, filterDesktopWallpapers, showMatureContent]);
+  }, [category, search, filterDesktopWallpapers, showMatureContent, loading]);
 
   useEffect(() => {
     setPage(1);
@@ -217,7 +232,7 @@ const Gallery = ({
           }
         }
       },
-      { threshold: 0.1, rootMargin: '1500px' }
+      { threshold: 0.1, rootMargin: '300px' }
     );
 
     const currentTarget = observerTarget.current;
@@ -550,6 +565,8 @@ const Gallery = ({
                 onRepair={handleRepair}
                 onDelete={handleDelete}
                 onSubscribe={handleSubscribe}
+                isFavorite={isFavorite(wallpaper)}
+                onToggleFavorite={toggleFavorite}
               />
             ))}
           </div>

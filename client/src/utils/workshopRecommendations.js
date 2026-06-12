@@ -43,6 +43,10 @@ const buildQuery = (wallpaper = {}) => {
   return String(wallpaper.category || '').trim();
 };
 
+const REC_CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutos
+const recCache = new Map(); // key -> { t: number, v: any[] }
+const recInflight = new Map(); // key -> Promise<any[]>
+
 export const fetchOnlineRecommendations = async ({
   wallpaper,
   limit = 12,
@@ -58,54 +62,79 @@ export const fetchOnlineRecommendations = async ({
   }
 
   const current = enrichWallpaperMetadata(wallpaper);
-  const tags = getSpecificTags(current);
-  const query = buildQuery(current);
-  const attempts = [
-    { query: '', requiredTags: tags.slice(0, 4), matchAllTags: false },
-    { query, requiredTags: tags.slice(0, 2), matchAllTags: false },
-    { query: tags[0] || query, requiredTags: [], matchAllTags: true }
-  ].filter(attempt => attempt.query || attempt.requiredTags.length > 0);
+  const currentId = getWallpaperId(current);
 
-  if (isMatureWallpaper(current) && showMatureContent) {
-    attempts.unshift({ query: '', requiredTags: ['Mature', ...tags.slice(0, 3)], matchAllTags: false });
+  const cacheKey = `${currentId || 'unknown'}|limit:${limit}|mature:${showMatureContent}`;
+  const now = Date.now();
+
+  const cached = recCache.get(cacheKey);
+  if (cached && now - cached.t < REC_CACHE_TTL_MS && Array.isArray(cached.v)) {
+    return cached.v;
   }
 
-  const seen = new Set([getWallpaperId(current)]);
-  const candidates = [];
+  const inflight = recInflight.get(cacheKey);
+  if (inflight) return inflight;
 
-  for (const attempt of attempts) {
-    try {
-      const result = await window.electronAPI.searchWorkshopWallpapers({
-        page: 1,
-        limit: Math.max(24, limit * 2),
-        sort: 'trend',
-        time: 'all',
-        ...attempt
-      });
+  const computePromise = (async () => {
+    const tags = getSpecificTags(current);
+    const query = buildQuery(current);
+    const attempts = [
+      { query: '', requiredTags: tags.slice(0, 4), matchAllTags: false },
+      { query, requiredTags: tags.slice(0, 2), matchAllTags: false },
+      { query: tags[0] || query, requiredTags: [], matchAllTags: true }
+    ].filter(attempt => attempt.query || attempt.requiredTags.length > 0);
 
-      if (!result?.success) continue;
+    if (isMatureWallpaper(current) && showMatureContent) {
+      attempts.unshift({ query: '', requiredTags: ['Mature', ...tags.slice(0, 3)], matchAllTags: false });
+    }
 
-      const items = Array.isArray(result.data?.data) ? result.data.data : [];
-      items
-        .map(item => enrichWallpaperMetadata({
-          ...item,
-          fromSteam: true,
-          category: item.category || 'workshop'
-        }))
-        .filter(item => canShowWallpaper(item, showMatureContent))
-        .forEach(item => {
-          const id = getWallpaperId(item);
-          if (!id || seen.has(id)) return;
-          seen.add(id);
-          candidates.push(item);
+    const seen = new Set([getWallpaperId(current)]);
+    const candidates = [];
+
+    for (const attempt of attempts) {
+      try {
+        const result = await window.electronAPI.searchWorkshopWallpapers({
+          page: 1,
+          limit: Math.max(24, limit * 2),
+          sort: 'trend',
+          time: 'all',
+          ...attempt
         });
 
-      if (candidates.length >= limit) break;
-    } catch {
-      // Recommendation attempts are best-effort; the caller can render no strip.
-    }
-  }
+        if (!result?.success) continue;
 
-  const sorted = sortSimilarWallpapers(current, candidates);
-  return (sorted.length > 0 ? sorted : candidates).slice(0, limit);
+        const items = Array.isArray(result.data?.data) ? result.data.data : [];
+        items
+          .map(item => enrichWallpaperMetadata({
+            ...item,
+            fromSteam: true,
+            category: item.category || 'workshop'
+          }))
+          .filter(item => canShowWallpaper(item, showMatureContent))
+          .forEach(item => {
+            const id = getWallpaperId(item);
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            candidates.push(item);
+          });
+
+        if (candidates.length >= limit) break;
+      } catch {
+        // Recommendation attempts are best-effort; the caller can render no strip.
+      }
+    }
+
+    const sorted = sortSimilarWallpapers(current, candidates);
+    return (sorted.length > 0 ? sorted : candidates).slice(0, limit);
+  })();
+
+  recInflight.set(cacheKey, computePromise);
+
+  try {
+    const value = await computePromise;
+    recCache.set(cacheKey, { t: Date.now(), v: value });
+    return value;
+  } finally {
+    recInflight.delete(cacheKey);
+  }
 };

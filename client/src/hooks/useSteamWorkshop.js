@@ -77,6 +77,34 @@ const saveSteamAccounts = (accounts) => {
   localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 };
 
+const minimizeWallpaperForCache = (w) => {
+  if (!w) return null;
+  return {
+    publishedFileId: w.publishedFileId || w.id || '',
+    title: w.title || '',
+    description: typeof w.description === 'string' ? w.description.slice(0, 150) : '',
+    author: w.author || '',
+    authorId: w.authorId || '',
+    mediaType: w.mediaType || 'image',
+    mediaUrl: w.mediaUrl || '',
+    playbackUrl: w.playbackUrl || '',
+    previewUrl: w.previewUrl || '',
+    localPath: w.localPath || '',
+    fromSteam: Boolean(w.fromSteam),
+    category: w.category || '',
+    tags: Array.isArray(w.tags) ? w.tags.slice(0, 5) : [],
+    fileSize: w.fileSize || 0,
+    resolution: w.resolution || '',
+    views: w.views || 0,
+    downloads: w.downloads || 0,
+    subscriptions: w.subscriptions || 0,
+    likes: w.likes || 0,
+    favorited: w.favorited || 0,
+    needsRepair: Boolean(w.needsRepair),
+    isBroken: Boolean(w.isBroken)
+  };
+};
+
 // Funciones para cache de wallpapers
 const saveWorkshopCache = (wallpapers, page = 1) => {
   try {
@@ -90,14 +118,16 @@ const saveWorkshopCache = (wallpapers, page = 1) => {
       return;
     }
     
+    const minimized = validWallpapers.map(minimizeWallpaperForCache).filter(Boolean);
+
     const cache = {
-      data: validWallpapers,
+      data: minimized,
       page,
       timestamp: Date.now(),
       version: 1 // Para futuras migraciones
     };
     localStorage.setItem(WORKSHOP_CACHE_KEY, JSON.stringify(cache));
-    console.log(`[Cache] 💾 Guardados ${validWallpapers.length} wallpapers válidos`);
+    console.log(`[Cache] 💾 Guardados ${minimized.length} wallpapers válidos (minimizados)`);
   } catch (e) {
     console.warn('Error saving workshop cache:', e);
     // Si hay error guardando, limpiar el cache corrupto
@@ -167,13 +197,15 @@ const saveSteamWallpapersCache = (wallpapers) => {
       return;
     }
     
+    const minimized = validWallpapers.map(minimizeWallpaperForCache).filter(Boolean);
+
     const cache = {
-      data: validWallpapers,
+      data: minimized,
       timestamp: Date.now(),
       version: 1
     };
     localStorage.setItem(STEAM_WALLPAPERS_CACHE_KEY, JSON.stringify(cache));
-    console.log(`[Cache] 💾 Guardados ${validWallpapers.length} wallpapers Steam válidos`);
+    console.log(`[Cache] 💾 Guardados ${minimized.length} wallpapers Steam válidos (minimizados)`);
   } catch (e) {
     console.warn('Error saving steam wallpapers cache:', e);
     // Si hay error guardando, limpiar el cache corrupto
@@ -619,6 +651,21 @@ export const useSteamWorkshop = ({
             return true;
           });
           console.log(`[Workshop] APPEND: ${uniqueNextItems.length}/${nextItems.length} únicos agregados`);
+
+          // Si el backend devolvió solo repetidos (dedupe = 0), cortar el infinite scroll.
+          // Esto evita el caso donde hasMore=true sigue solicitando páginas pero no se agregan nuevos.
+          if (uniqueNextItems.length === 0) {
+            // Backend devolvió sólo repetidos (plateau por dedupe).
+            // En vez de cortar definitivo el hasMore (que puede matar reintentos),
+            // permitimos que el UI reintente con una carga extra, pero evitamos
+            // que el loader/flags queden en estado incorrecto.
+            setWorkshopLoading(false);
+            loadingMoreWorkshopRef.current = false;
+            // Marcamos hasMore=false para detener el bucle del infinite scroll
+            // y que la UI deje de disparar páginas inmediatamente.
+            setHasMoreWorkshop(false);
+          }
+
           merged = [...current, ...uniqueNextItems];
         } else {
           // Reset on new search

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import '../styles/header.css';
 
 const handleAppExit = async () => {
@@ -139,6 +139,21 @@ const Header = ({
   onOpenProfile = () => {},
   showTitle = true
 }) => {
+  const [localSearch, setLocalSearch] = useState(searchQuery);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    setLocalSearch(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -162,10 +177,22 @@ const Header = ({
 
   const handleSearch = useCallback(e => {
     const query = e.target.value;
-    onSearch(query);
+    setLocalSearch(query);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      onSearch(query);
+    }, 400);
   }, [onSearch]);
 
   const handleClear = useCallback(() => {
+    setLocalSearch('');
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
     onSearch('');
   }, [onSearch]);
 
@@ -202,11 +229,11 @@ const Header = ({
               <input
                 type="text"
                 placeholder="Buscar wallpapers..."
-                value={searchQuery}
+                value={localSearch}
                 onChange={handleSearch}
                 className="search-input"
               />
-              {searchQuery ? (
+              {localSearch ? (
                 <button type="button" onClick={handleClear} className="search-clear">x</button>
               ) : (
                 <i className="bi bi-search"></i>
@@ -477,12 +504,12 @@ const Header = ({
               <input
                 type="text"
                 placeholder="Buscar wallpapers..."
-                value={searchQuery}
+                value={localSearch}
                 onChange={handleSearch}
                 className="search-input"
                 autoFocus
               />
-              {searchQuery && (
+              {localSearch && (
                 <button type="button" onClick={handleClear} className="search-clear">x</button>
               )}
             </div>

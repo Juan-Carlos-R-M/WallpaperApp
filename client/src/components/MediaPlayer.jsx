@@ -10,30 +10,40 @@ const MediaPlayer = memo(({ wallpaper, isHovered, showControls = false }) => {
   const isVideo = isVideoWallpaper(wallpaper) && Boolean(videoUrl);
 
   useEffect(() => {
-    if (!videoRef.current || !isVideo) return;
-
-    if (isHovered) {
-      videoRef.current.play().catch(() => {});
-    } else {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
+    if (videoRef.current && isVideo) {
+      if (isHovered || showControls) {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
     }
-  }, [isHovered, isVideo, videoUrl]);
+  }, [isHovered, showControls, isVideo, videoUrl]);
 
   const renderMedia = () => {
     switch (true) {
       case isVideo:
+        if (isHovered || showControls) {
+          return (
+            <video
+              ref={videoRef}
+              className="media-video"
+              muted={!showControls}
+              loop
+              playsInline
+              preload="auto"
+              poster={previewUrl}
+              src={videoUrl}
+              {...(showControls && { controls: true, autoPlay: true })}
+            />
+          );
+        }
         return (
-          <video
-            ref={videoRef}
-            className="media-video"
-            muted={!showControls}
-            loop
-            playsInline
-            preload="metadata"
-            poster={previewUrl}
-            src={videoUrl}
-            {...(showControls && { controls: true, autoPlay: true })}
+          <img
+            src={previewUrl}
+            alt={wallpaper.title}
+            className="media-image"
+            loading="lazy"
           />
         );
       case wallpaper.mediaType === 'gif':

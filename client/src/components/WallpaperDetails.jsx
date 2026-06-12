@@ -8,6 +8,7 @@ import {
   formatPlaybackTime,
   getAuthorInfo,
   getPreviewUrl,
+  getWallpaperId,
   getVideoPlaybackUrl,
   normalizeTags,
   extractDescriptionLinks,
@@ -465,8 +466,8 @@ export default function WallpaperDetails({
   }
 
   // Validate critical data
-  if (!localWallpaper.publishedFileId) {
-    console.error('[WallpaperDetails] ❌ CRITICAL: wallpaper has no publishedFileId:', wallpaper);
+  if (!getWallpaperId(localWallpaper)) {
+    console.error('[WallpaperDetails] ❌ CRITICAL: wallpaper has no valid ID:', wallpaper);
     return createPortal(
       <div className="wallpaper-details-overlay" ref={overlayRef} onClick={onClose}>
         <section className="wallpaper-detail-screen" onClick={(event) => event.stopPropagation()}>
@@ -509,7 +510,17 @@ export default function WallpaperDetails({
                   preload="metadata"
                   playsInline
                   onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-                  onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+                  onTimeUpdate={(event) => {
+                    // Throttling: evita setState en cada frame de playback
+                    const t = event.currentTarget.currentTime || 0;
+                    // Solo actualizar cuando pasen ~200ms o cuando el usuario no esté tocando la UI
+                    const now = Date.now();
+                    if (!videoRef.current) return;
+                    if (!videoRef.current.__lastTimeUpdateTs) videoRef.current.__lastTimeUpdateTs = 0;
+                    if (now - videoRef.current.__lastTimeUpdateTs < 200) return;
+                    videoRef.current.__lastTimeUpdateTs = now;
+                    setCurrentTime(t);
+                  }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
                 />

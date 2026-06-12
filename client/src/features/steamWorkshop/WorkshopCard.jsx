@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { toPlayableUrl } from '../../utils/mediaUrl';
+import ContextMenu from '../../components/ContextMenu';
 import {
   getWallpaperId,
   isVideoWallpaper,
@@ -20,7 +21,8 @@ const WorkshopCard = ({
   onRepair,
   onToggleFavorite
 }) => {
-  const [isNearViewport, setIsNearViewport] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
   const cardRef = useRef(null);
   const isDownloaded = Boolean(downloadedWallpaper);
   const displayWallpaper = mergeDownloadedWallpaper(wallpaper, downloadedWallpaper);
@@ -29,19 +31,6 @@ const WorkshopCard = ({
     ? toPlayableUrl(displayWallpaper.playbackUrl || displayWallpaper.mediaUrl)
     : '';
   const typeLabel = isDownloaded ? displayWallpaper.mediaType || 'instalado' : displayWallpaper.mediaType || 'workshop';
-
-  useEffect(() => {
-    const node = cardRef.current;
-    if (!node) return undefined;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsNearViewport(entry.isIntersecting),
-      { rootMargin: '900px 0px' }
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
 
   const handleOpen = () => {
     console.log('[WorkshopCard] 🖱️ Clicked on wallpaper:', {
@@ -53,25 +42,124 @@ const WorkshopCard = ({
     });
     onOpen(displayWallpaper);
   };
-  const handleToggleFavorite = () => onToggleFavorite(wallpaper);
-  const handleDownload = () => (isDownloaded ? onDownload(displayWallpaper) : onDownload(wallpaper));
-  const handleDelete = () => onDelete(displayWallpaper);
-  const handleRepair = () => onRepair && onRepair(wallpaper);
+
+  const handleToggleFavorite = (event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    onToggleFavorite(wallpaper);
+  };
+
+  const handleDownload = (event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    if (isDownloaded) {
+      onDownload(displayWallpaper);
+    } else {
+      onDownload(wallpaper);
+    }
+  };
+
+  const handleDelete = (event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    onDelete(displayWallpaper);
+  };
+
+  const handleRepair = (event) => {
+    event?.stopPropagation();
+    event?.preventDefault();
+    if (onRepair) {
+      onRepair(wallpaper);
+    }
+  };
+
+  const handleContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY
+    });
+  };
+
+  const contextMenuOptions = [
+    {
+      label: 'Ver detalles',
+      icon: 'info-circle',
+      onClick: handleOpen
+    },
+    isDownloaded && window.electronAPI?.setWallpaper ? {
+      label: 'Establecer como fondo',
+      icon: 'display',
+      onClick: async () => {
+        try {
+          const path = displayWallpaper.fileSystemPath || displayWallpaper.localPath || displayWallpaper.mediaUrl;
+          if (!path) throw new Error("No hay ruta de archivo válida");
+          const winPath = String(path).replace(/^local-media:\/\/[A-Z]\//i, (match) => {
+            return match.slice(14, 15) + ':/';
+          });
+          const success = await window.electronAPI.setWallpaper(winPath);
+          if (success) {
+            alert("¡Fondo de pantalla establecido!");
+          } else {
+            alert("No se pudo establecer el fondo.");
+          }
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
+      }
+    } : null,
+    {
+      label: isFavorite ? 'Quitar de Favoritos' : 'Añadir a Favoritos',
+      icon: isFavorite ? 'heart-fill' : 'heart',
+      active: isFavorite,
+      onClick: () => onToggleFavorite(wallpaper)
+    },
+    !isDownloaded ? {
+      label: isDownloading ? 'Descargando...' : 'Descargar',
+      icon: 'download',
+      disabled: isDownloading || !downloaderReady,
+      onClick: () => onDownload(wallpaper)
+    } : null,
+    isDownloaded ? {
+      label: isDownloading ? 'Reparando...' : 'Reparar',
+      icon: 'arrow-repeat',
+      disabled: isDownloading || !downloaderReady,
+      onClick: () => onRepair && onRepair(wallpaper)
+    } : null,
+    isDownloaded ? {
+      divider: true
+    } : null,
+    isDownloaded ? {
+      label: isDeleting ? 'Eliminando...' : 'Eliminar',
+      icon: 'trash',
+      danger: true,
+      disabled: isDeleting,
+      onClick: () => onDelete(displayWallpaper)
+    } : null
+  ].filter(Boolean);
 
   return (
-    <div className={`steam-card workshop-card gallery-workshop-card ${isDownloaded ? 'downloaded' : ''}`} ref={cardRef}>
+    <div
+      className={`steam-card workshop-card gallery-workshop-card ${isDownloaded ? 'downloaded' : ''}`}
+      ref={cardRef}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <button className="steam-card-click" onClick={handleOpen}>
         <div className="steam-card-image">
-          {isNearViewport && videoUrl ? (
+          {isHovered && videoUrl ? (
             <video
               src={videoUrl}
               poster={previewUrl}
               muted
               loop
               playsInline
-              preload="metadata"
+              autoPlay
+              preload="auto"
             />
-          ) : isNearViewport && previewUrl && (
+          ) : previewUrl && (
             <img
               src={previewUrl}
               alt={displayWallpaper.title}
@@ -100,66 +188,100 @@ const WorkshopCard = ({
           </div>
         </div>
       </button>
+
+      <button
+        type="button"
+        className="card-more-btn"
+        aria-label="Mas opciones"
+        onClick={(event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setContextMenu({
+            x: rect.left,
+            y: rect.bottom + window.scrollY
+          });
+        }}
+      >
+        <i className="bi bi-three-dots"></i>
+      </button>
+
       <div className="workshop-actions">
-        <button type="button" className={`icon-action ${isFavorite ? 'liked' : ''}`} onClick={handleToggleFavorite}>
-          <span>Favorito</span>
-        </button>
-        {isIncomplete ? (
-          <>
-            <button
-              type="button"
-              onClick={handleRepair}
-              disabled={isDownloading || !downloaderReady}
-              className="repair-wallpaper-btn primary"
-              title="Reparar eliminando y descargando de nuevo"
-            >
-              <i className={`bi bi-wrench ${isDownloading ? 'spin-icon' : ''}`}></i>
-              {isDownloading ? 'Reparando...' : 'Reparar'}
-            </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="delete-wallpaper-btn"
-            >
-              <i className="bi bi-trash"></i>
-              {isDeleting ? 'Eliminando...' : 'Eliminar'}
-            </button>
-          </>
-        ) : isDownloaded ? (
-          <>
-            {/^\d+$/.test(getWallpaperId(wallpaper)) && (
+        <div className="card-actions-icon-row">
+          <button
+            type="button"
+            className={`action-icon-btn fav-btn ${isFavorite ? 'active' : ''}`}
+            onClick={handleToggleFavorite}
+            title={isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+          >
+            <i className={`bi bi-heart${isFavorite ? '-fill' : ''}`}></i>
+          </button>
+          
+          {isIncomplete ? (
+            <>
               <button
                 type="button"
-                onClick={handleDownload}
+                onClick={handleRepair}
                 disabled={isDownloading || !downloaderReady}
-                className="repair-wallpaper-btn"
+                className="action-icon-btn repair-btn"
+                title="Reparar eliminando y descargando de nuevo"
               >
-                <i className={`bi bi-arrow-repeat ${isDownloading ? 'spin-icon' : ''}`}></i>
-                {isDownloading ? 'Reparando...' : 'Reparar'}
+                <i className={`bi bi-wrench ${isDownloading ? 'spin-icon' : ''}`}></i>
               </button>
-            )}
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="action-icon-btn delete-btn danger"
+                title="Eliminar wallpaper"
+              >
+                <i className="bi bi-trash"></i>
+              </button>
+            </>
+          ) : isDownloaded ? (
+            <>
+              {/^\d+$/.test(getWallpaperId(wallpaper)) && (
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={isDownloading || !downloaderReady}
+                  className="action-icon-btn repair-btn"
+                  title="Reparar/Re-descargar"
+                >
+                  <i className={`bi bi-arrow-repeat ${isDownloading ? 'spin-icon' : ''}`}></i>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="action-icon-btn delete-btn danger"
+                title="Eliminar wallpaper"
+              >
+                <i className="bi bi-trash"></i>
+              </button>
+            </>
+          ) : (
             <button
-              type="button"
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="delete-wallpaper-btn"
+              onClick={handleDownload}
+              disabled={isDownloading || !downloaderReady}
+              className="action-icon-btn download-btn success"
+              title="Descargar wallpaper"
             >
-              <i className="bi bi-trash"></i>
-              {isDeleting ? 'Eliminando...' : 'Eliminar'}
+              <i className={`bi bi-download ${isDownloading ? 'spin-icon' : ''}`}></i>
             </button>
-          </>
-        ) : (
-          <button
-            onClick={handleDownload}
-            disabled={isDownloading || !downloaderReady}
-            className="set-wallpaper-btn"
-          >
-            <i className={`bi bi-download ${isDownloading ? 'spin-icon' : ''}`}></i>
-            {isDownloading ? 'Descargando...' : 'Descargar'}
-          </button>
-        )}
+          )}
+        </div>
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          options={contextMenuOptions}
+        />
+      )}
     </div>
   );
 };
