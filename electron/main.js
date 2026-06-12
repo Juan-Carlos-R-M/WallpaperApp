@@ -270,21 +270,54 @@ const stopBundledServer = () => {
 };
 
 const registerLocalMediaProtocol = () => {
-  protocol.handle(LOCAL_MEDIA_PROTOCOL, (request) => {
+  const handler = (request) => {
     try {
       const mediaUrl = new URL(request.url);
-      const filePath = decodeURIComponent(mediaUrl.pathname.replace(/^\/+/, ''));
+      // Chromium parses local-media://C/Users/file.jpg as:
+      //   hostname='C', pathname='/Users/file.jpg'
+      // We reassemble it into a proper Windows path: C:/Users/file.jpg
+      const hostname = mediaUrl.hostname; // drive letter (e.g. 'C')
+      const pathPart = decodeURIComponent(mediaUrl.pathname); // e.g. '/Users/file.jpg'
+
+      let filePath;
+      if (hostname && /^[a-zA-Z]$/.test(hostname)) {
+        // Windows drive letter path: reassemble C: + /Users/... = C:/Users/...
+        filePath = `${hostname.toUpperCase()}:${pathPart}`;
+      } else {
+        // Fallback: strip leading slashes from pathname
+        filePath = pathPart.replace(/^\/+/, '');
+      }
 
       if (!filePath) {
         return new Response('Media path is empty', { status: 404 });
       }
 
+      // Normalize to the OS path format (forward→backslash on Windows)
+      filePath = path.normalize(filePath);
+      log(`[local-media] Serving: ${filePath}`);
       return net.fetch(pathToFileURL(filePath).href);
     } catch (error) {
       log('Error resolving local media URL:', error);
       return new Response('Unable to load media', { status: 500 });
     }
-  });
+  };
+
+  // Register on the global protocol module (used for packaged app)
+  try {
+    protocol.handle(LOCAL_MEDIA_PROTOCOL, handler);
+  } catch (e) {
+    log('[local-media] global protocol already registered:', e.message);
+  }
+
+  // Also register on the default session so it works in dev mode (localhost:5173)
+  const { session } = require('electron');
+  if (session.defaultSession) {
+    try {
+      session.defaultSession.protocol.handle(LOCAL_MEDIA_PROTOCOL, handler);
+    } catch (e) {
+      log('[local-media] session protocol already registered:', e.message);
+    }
+  }
 };
 
 const sanitizeFileName = (value = 'wallpaper') => {
@@ -482,7 +515,7 @@ const createWindow = () => {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      sandbox: true,
+      sandbox: false,
       // The combined GPU+renderer process is the only mode that doesn't
       // crash on the APU drivers we ship to. Keeping them in the same
       // process is the documented Electron workaround for the

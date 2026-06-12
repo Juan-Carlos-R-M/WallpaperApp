@@ -523,7 +523,23 @@ class SteamReader {
   }
 
   toLocalMediaUrl(filePath) {
-    return filePath ? `${LOCAL_MEDIA_PROTOCOL}:///${encodeURIComponent(filePath)}` : '';
+    if (!filePath) return '';
+    // Chromium's URL parser (used by Electron) treats the first path segment
+    // as the hostname for custom 'standard' schemes.
+    // For Windows paths like C:\Users\... we encode as:
+    //   local-media://C/Users/charly/file.jpg
+    // so Chromium sees host='C' and path='/Users/charly/file.jpg',
+    // which the handler then reassembles into 'C:/Users/charly/file.jpg'.
+    const normalized = String(filePath).replace(/\\/g, '/');
+    // Extract drive letter if present (e.g. 'C:/')
+    const driveMatch = normalized.match(/^([a-zA-Z]):(\/.*)?$/);
+    if (driveMatch) {
+      const drive = driveMatch[1].toUpperCase();
+      const rest = driveMatch[2] || '/';
+      return `${LOCAL_MEDIA_PROTOCOL}://${drive}${rest}`;
+    }
+    // UNC or non-drive path: just use triple-slash
+    return `${LOCAL_MEDIA_PROTOCOL}:///${normalized}`;
   }
 
   async searchSteamWallpapers(query) {

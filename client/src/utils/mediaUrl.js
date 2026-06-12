@@ -2,9 +2,19 @@ const isElectronRenderer = () => (
   typeof window !== 'undefined' && Boolean(window.electronAPI)
 );
 
-const toLocalMediaUrl = (filePath = '') => (
-  filePath ? `local-media:///${encodeURIComponent(filePath)}` : ''
-);
+const toLocalMediaUrl = (filePath = '') => {
+  if (!filePath) return '';
+  const normalized = String(filePath).replace(/\\/g, '/');
+  // Chromium parses custom-scheme://X/path as host=X, pathname=/path.
+  // We exploit this: put the drive letter as host so it survives round-trip.
+  const driveMatch = normalized.match(/^([a-zA-Z]):(\/.*)?$/);
+  if (driveMatch) {
+    const drive = driveMatch[1].toUpperCase();
+    const rest = driveMatch[2] || '/';
+    return `local-media://${drive}${rest}`;
+  }
+  return `local-media:///${normalized}`;
+};
 
 const fileUrlToPath = (value = '') => {
   try {
