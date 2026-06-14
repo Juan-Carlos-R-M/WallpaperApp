@@ -110,9 +110,15 @@ class LocalStore {
 
   async addFavorite(wallpaper) {
     const favorites = await this.getFavorites();
-    if (!favorites.find(f => f.id === wallpaper.id)) {
+    const wallpaperId = wallpaper.id || wallpaper.publishedFileId || wallpaper._id;
+    const exists = favorites.some(f => {
+      const fId = f.id || f.publishedFileId || f._id;
+      return fId === wallpaperId || (wallpaperId && (f.id === wallpaperId || f.publishedFileId === wallpaperId));
+    });
+    if (!exists) {
       favorites.push({
         ...wallpaper,
+        id: wallpaper.id || wallpaper.publishedFileId || wallpaper._id || Date.now().toString(),
         addedAt: new Date().toISOString()
       });
       await this.writeFile(this.favoritesFile, favorites);

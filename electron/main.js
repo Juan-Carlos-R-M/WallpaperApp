@@ -171,6 +171,7 @@ const WallpaperManager = require('./wallpaperManager');
 const WorkshopService = require('./workshopService');
 const DownloadRetryService = require('./downloadRetryService');
 const AccountStore = require('./accountStore');
+const LocalStore = require('./localStore');
 const LOCAL_MEDIA_PROTOCOL = 'local-media';
 
 const MIME_EXTENSION_MAP = {
@@ -201,6 +202,7 @@ let workshopService;
 let downloadRetryService;
 let accountStore;
 let bundledServer;
+let localStore;
 
 if (app.isPackaged) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Wallpaper App Desktop'));
@@ -671,6 +673,33 @@ ipcMain.handle('set-wallpaper', async (event, wallpaperPath) => {
     return { success };
   } catch (error) {
     console.error('Error setting wallpaper:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-favorites', async () => {
+  try {
+    const favorites = await localStore.getFavorites();
+    return { success: true, data: favorites };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-favorite', async (_event, wallpaper = {}) => {
+  try {
+    await localStore.addFavorite(wallpaper);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('remove-favorite', async (_event, wallpaperId) => {
+  try {
+    await localStore.removeFavorite(wallpaperId);
+    return { success: true };
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -1261,6 +1290,9 @@ app.on('ready', async () => {
     maxRetries: 3,
     logger: log
   });
+  localStore = new LocalStore(app.getPath('userData'));
+  try { await localStore.init(); } catch {}
+
   await startBundledServer();
   createWindow();
   createMenu();

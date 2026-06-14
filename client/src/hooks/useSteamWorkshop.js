@@ -655,15 +655,18 @@ export const useSteamWorkshop = ({
           // Si el backend devolvió solo repetidos (dedupe = 0), cortar el infinite scroll.
           // Esto evita el caso donde hasMore=true sigue solicitando páginas pero no se agregan nuevos.
           if (uniqueNextItems.length === 0) {
+            // Backend devolvió sólo repetidos por dedupe.
             // Backend devolvió sólo repetidos (plateau por dedupe).
             // En vez de cortar definitivo el hasMore (que puede matar reintentos),
+            setWorkshopLoading(false);
+            loadingMoreWorkshopRef.current = false;
             // permitimos que el UI reintente con una carga extra, pero evitamos
             // que el loader/flags queden en estado incorrecto.
             setWorkshopLoading(false);
             loadingMoreWorkshopRef.current = false;
-            // Marcamos hasMore=false para detener el bucle del infinite scroll
-            // y que la UI deje de disparar páginas inmediatamente.
-            setHasMoreWorkshop(false);
+            // No forzamos hasMore aquí: el fin del scroll lo decide data.hasMore.
+            // Solo cortamos el loader/flags para evitar estado enganchado.
+
           }
 
           merged = [...current, ...uniqueNextItems];

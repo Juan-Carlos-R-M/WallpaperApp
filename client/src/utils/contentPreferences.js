@@ -35,22 +35,43 @@ export const isMatureWallpaper = (wallpaper = {}) => (
 );
 
 export const isValidWallpaper = (wallpaper = {}) => {
-  // Un wallpaper es válido si tiene al menos título y un ID
-  // Aceptamos varios formatos de ID para mayor compatibilidad
-  const hasId = wallpaper.publishedFileId || wallpaper.id || wallpaper.fileId || wallpaper.localPath || wallpaper.mediaUrl;
-  const hasTitle = wallpaper.title && String(wallpaper.title).trim();
-  
-  const isValid = Boolean(hasId && hasTitle);
-  
+  // Un wallpaper es válido si tiene al menos título y un ID.
+  // Aceptamos varios formatos (Workshop/Web/Electron payloads distintos).
+  const hasId = Boolean(
+    wallpaper.publishedFileId
+    || wallpaper.publishedfileid
+    || wallpaper.id
+    || wallpaper.fileId
+    || wallpaper.fileid
+    || wallpaper.wallpaperId
+    || wallpaper.steamId
+    || wallpaper.localPath
+    || wallpaper.mediaUrl
+    || wallpaper.url
+    || wallpaper.downloadUrl
+  );
+
+  const titleCandidate = wallpaper.title
+    || wallpaper.name
+    || wallpaper.displayName
+    || wallpaper.wallpaperName
+    || wallpaper.filename
+    || '';
+
+  const hasTitle = Boolean(String(titleCandidate).trim());
+
+  const isValid = hasId && hasTitle;
+
   // Solo loguear si el wallpaper es realmente inválido (falta ID o título)
   if (!isValid && Object.keys(wallpaper).length > 0) {
     console.warn('[ContentPreferences] Wallpaper inválido (falta ID o título):', {
       title: wallpaper.title,
+      titleCandidate,
       hasId,
       hasTitle
     });
   }
-  
+
   return isValid;
 };
 

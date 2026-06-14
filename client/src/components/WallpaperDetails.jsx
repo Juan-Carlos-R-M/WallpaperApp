@@ -224,22 +224,21 @@ export default function WallpaperDetails({
   const displayedAuthorWallpapers = (() => {
     // Primero: wallpapers del perfil del autor (desde Electron API)
     if (workshopAuthorProfile?.wallpapers?.length) {
-      console.log('👁️ Usando wallpapers del perfil del autor:', workshopAuthorProfile.wallpapers.length);
       return workshopAuthorProfile.wallpapers.filter(
         item => item.publishedFileId !== displayWallpaper.publishedFileId
       );
     }
-    
+
     // Fallback: wallpapers pasados como prop (desde SteamIntegration)
     if (authorWallpapers?.length) {
-      console.log('👁️ Usando wallpapers pasados como prop:', authorWallpapers.length);
       return authorWallpapers;
     }
-    
+
     // Último recurso: retornar array vacío (se ocultará la sección)
-    console.warn('⚠️ No hay wallpapers del autor disponibles', { authorId, authorName });
     return [];
   })();
+
+
 
   useEffect(() => {
     setResolvedAuthor('');

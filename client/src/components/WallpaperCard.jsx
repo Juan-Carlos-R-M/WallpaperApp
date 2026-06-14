@@ -38,29 +38,23 @@ const WallpaperCard = memo(({
   const isDownloaded = downloadedOverride || isDownloadedWallpaper(displayWallpaper);
   const mediaType = isVideoWallpaper(displayWallpaper) ? 'video' : String(displayWallpaper.mediaType || 'image').toLowerCase();
 
+  const isElectron = Boolean(window?.electronAPI?.getFavorites);
+
+
+  // En Electron, la fuente de verdad es IPC -> favorites.json.
+  // Por eso NO usamos localStorage como fallback aquí.
   const [isFavoriteState, setIsFavoriteState] = useState(() => {
     if (typeof isFavorite === 'boolean') return isFavorite;
-    try {
-      const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
-      return favs.some(item => getWallpaperId(item) === wallpaperId);
-    } catch {
-      return false;
-    }
+    return false;
   });
+
 
   useEffect(() => {
     if (typeof isFavorite === 'boolean') {
       setIsFavoriteState(isFavorite);
-      return;
     }
-    // Si solo cambia el objeto pero el ID es el mismo, no recalculamos.
-    try {
-      const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
-      setIsFavoriteState(favs.some(item => getWallpaperId(item) === wallpaperId));
-    } catch {
-      setIsFavoriteState(false);
-    }
-  }, [isFavorite, wallpaperId]);
+  }, [isFavorite]);
+
 
   useEffect(() => {
     const handleFavoritesUpdated = (e) => {
@@ -182,27 +176,54 @@ const WallpaperCard = memo(({
   const handleToggleFavorite = (event) => {
     event?.stopPropagation();
     event?.preventDefault();
+
     if (onToggleFavorite) {
       onToggleFavorite(wallpaper);
-      setIsFavoriteState(prev => !prev);
-    } else {
-      try {
-        const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
-        const id = getWallpaperId(wallpaper);
-        const exists = favs.some(item => getWallpaperId(item) === id);
-        let nextFavorites;
-        if (exists) {
-          nextFavorites = favs.filter(item => getWallpaperId(item) !== id);
-          setIsFavoriteState(false);
-        } else {
-          nextFavorites = [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...favs];
-          setIsFavoriteState(true);
+      return;
+    }
+
+    const ipcAvailable = Boolean(window?.electronAPI?.addFavorite && window?.electronAPI?.removeFavorite);
+
+    // En Electron, persiste directo en favorites.json vía IPC.
+    if (isElectron && ipcAvailable) {
+      const id = displayWallpaper.id || displayWallpaper._id || displayWallpaper.publishedFileId || displayWallpaper.localPath || displayWallpaper.mediaUrl;
+      const normalized = { ...displayWallpaper, id };
+      const nextFavoriteState = !isFavoriteState;
+
+      const promise = isFavoriteState
+        ? window.electronAPI.removeFavorite(id)
+        : window.electronAPI.addFavorite(normalized);
+
+      promise.then(res => {
+        if (res?.success) {
+          setIsFavoriteState(nextFavoriteState);
+          window.dispatchEvent(new CustomEvent('favorites-updated', {
+            detail: { wallpaper: normalized, isFavorite: nextFavoriteState }
+          }));
         }
-        localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
-        window.dispatchEvent(new CustomEvent('favorites-updated', { detail: { wallpaper, isFavorite: !exists } }));
-      } catch (err) {
-        console.error('Error toggling favorite:', err);
+      }).catch(err => {
+        console.error('Error toggling favorite via IPC:', err);
+      });
+      return;
+    }
+
+    // Sin onToggleFavorite ni Electron: fallback a localStorage
+    try {
+      const favs = JSON.parse(localStorage.getItem('wallpaperApp.workshopFavorites') || '[]');
+      const id = getWallpaperId(wallpaper);
+      const exists = favs.some(item => getWallpaperId(item) === id);
+      let nextFavorites;
+      if (exists) {
+        nextFavorites = favs.filter(item => getWallpaperId(item) !== id);
+        setIsFavoriteState(false);
+      } else {
+        nextFavorites = [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...favs];
+        setIsFavoriteState(true);
       }
+      localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
+      window.dispatchEvent(new CustomEvent('favorites-updated', { detail: { wallpaper, isFavorite: !exists } }));
+    } catch (err) {
+      console.error('Error toggling favorite via localStorage:', err);
     }
   };
 

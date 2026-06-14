@@ -50,9 +50,25 @@ export const getSubscribedAuthorIds = (subscriptions = {}) => (
     .map(([authorId]) => authorId))
 );
 
+const sanitizeWallpaperForStorage = (wp) => {
+  if (!wp || typeof wp !== 'object') return wp;
+  const copy = { ...wp };
+  const keysToClean = ['previewUrl', 'mediaUrl', 'playbackUrl', 'localPath', 'url', 'path', 'thumbnailUrl', 'imageUrl'];
+  for (const key of keysToClean) {
+    if (typeof copy[key] === 'string' && copy[key].startsWith('data:')) {
+      copy[key] = '';
+    }
+  }
+  return copy;
+};
+
 export const buildAuthorSubscriptionRecord = (wallpaper = {}, source = 'manual') => {
   const authorId = getWallpaperAuthorId(wallpaper);
   const authorInfo = getAuthorInfo(wallpaper);
+  const preview = getPreviewUrl(wallpaper);
+  const safePreview = typeof preview === 'string' && preview.startsWith('data:') ? '' : preview;
+  const avatar = authorInfo?.avatar || '';
+  const safeAvatar = typeof avatar === 'string' && avatar.startsWith('data:') ? '' : avatar;
 
   return {
     following: true,
@@ -60,8 +76,8 @@ export const buildAuthorSubscriptionRecord = (wallpaper = {}, source = 'manual')
     source,
     name: authorInfo?.name || wallpaper.author || authorId,
     handle: authorInfo?.handle || (authorId ? `@${String(authorId).slice(0, 12)}` : ''),
-    avatar: authorInfo?.avatar || '',
-    preview: getPreviewUrl(wallpaper),
+    avatar: safeAvatar,
+    preview: safePreview,
     contentTypes: [getContentBucket(wallpaper)]
   };
 };
@@ -93,6 +109,11 @@ export const saveAuthorProfileInfo = (authorId, profileData = {}) => {
   const subscriptions = loadAuthorSubscriptions();
   const previous = subscriptions[authorId] || {};
   
+  const avatar = profileData.avatar || profileData.avatarUrl || previous.avatar || '';
+  const avatarUrl = profileData.avatarUrl || profileData.avatar || previous.avatarUrl || '';
+  const safeAvatar = typeof avatar === 'string' && avatar.startsWith('data:') ? '' : avatar;
+  const safeAvatarUrl = typeof avatarUrl === 'string' && avatarUrl.startsWith('data:') ? '' : avatarUrl;
+
   // Guardar información del perfil del autor
   subscriptions[authorId] = {
     ...previous,
@@ -102,8 +123,8 @@ export const saveAuthorProfileInfo = (authorId, profileData = {}) => {
     // Información enriquecida del perfil
     name: profileData.name || previous.name || String(authorId).slice(-6),
     handle: profileData.handle || previous.handle || `@${String(authorId).slice(0, 12)}`,
-    avatar: profileData.avatar || profileData.avatarUrl || previous.avatar || '',
-    avatarUrl: profileData.avatarUrl || profileData.avatar || previous.avatarUrl || '',
+    avatar: safeAvatar,
+    avatarUrl: safeAvatarUrl,
     description: profileData.description || previous.description || '',
     bio: profileData.bio || previous.bio || '',
     followers: Number(profileData.followers) || Number(previous.followers) || 0,
@@ -143,16 +164,23 @@ export const recordWallpaperInteraction = (wallpaper = {}, type = 'view') => {
       types: nextTypes,
       lastType: type,
       lastAt: Date.now(),
-      wallpaper: {
+      wallpaper: sanitizeWallpaperForStorage({
         ...previous.wallpaper,
         ...wallpaper
-      }
+      })
     }
   };
 
-  writeJson(WALLPAPER_INTERACTIONS_STORAGE_KEY, next);
+  // Evitar que una cuota de localStorage rompa el flujo del UI
+  try {
+    writeJson(WALLPAPER_INTERACTIONS_STORAGE_KEY, next);
+  } catch (err) {
+    // writeJson/safeSetItem ya intenta cleanup; aquí solo evitamos crash
+    console.warn('[recommendationSignals] No se pudieron guardar interacciones (quota o error):', err);
+  }
   return next;
 };
+
 
 const collectTags = (wallpapers = [], weight = 1) => {
   const tags = new Map();

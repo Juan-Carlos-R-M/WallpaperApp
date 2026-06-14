@@ -15,10 +15,15 @@ export const safeSetItem = (key, value) => {
   } catch (err) {
     if (err.name === 'QuotaExceededError' || err.message.includes('exceeded the quota')) {
       console.warn(`localStorage quota exceeded for key: ${key}`);
-      
-      // Intentar limpiar datos no esenciales
+
+      // Intentar limpiar datos no esenciales (incluye favoritos/interacciones)
       cleanupOldStorage();
-      
+
+      // Además, si seguimos sin espacio, eliminar específicamente la key objetivo
+      try {
+        localStorage.removeItem(key);
+      } catch {}
+
       // Reintentar una sola vez
       try {
         localStorage.setItem(key, JSON.stringify(value));
@@ -40,8 +45,13 @@ export const cleanupOldStorage = () => {
   const keysToClean = [
     'wallpaperApp.subscriptions', // Puede crecer mucho
     'wallpaperApp.workshopCache', // Cache que puede limpiarse
-    'wallpaperApp.recommendationSignals', // Datos históricos
+    'wallpaperApp.steamWallpapersCache', // Cache de wallpapers de Steam
+    'wallpaperApp.recommendationSignals' // Datos históricos
   ];
+
+  // IMPORTANTE: NO tocar favoritos/interacciones para no perder wallpapers guardados.
+  // 'wallpaperApp.wallpaperInteractions',
+  // 'wallpaperApp.workshopFavorites'
 
   for (const key of keysToClean) {
     try {
@@ -49,12 +59,12 @@ export const cleanupOldStorage = () => {
       if (stored) {
         const data = JSON.parse(stored);
         
-        // Para subscripciones, limitar a últimas 100 items
+        // Para subscripciones, limitar a últimas 50 items
         if (key === 'wallpaperApp.subscriptions' && typeof data === 'object') {
           const keys = Object.keys(data);
-          if (keys.length > 100) {
+          if (keys.length > 50) {
             const cleaned = {};
-            keys.slice(-100).forEach(k => {
+            keys.slice(-50).forEach(k => {
               cleaned[k] = data[k];
             });
             localStorage.setItem(key, JSON.stringify(cleaned));

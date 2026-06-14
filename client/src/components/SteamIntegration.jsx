@@ -64,8 +64,14 @@ const loadFavorites = () => {
 };
 
 const saveFavorites = (favorites) => {
-  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  // Evitar crash/reload por quota excedida
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+  } catch (err) {
+    console.warn('[SteamIntegration] localStorage quota excedida al guardar favoritos, ignorando persistencia.', err);
+  }
 };
+
 
 const loadSubscriptions = () => {
   return loadAuthorSubscriptions();
@@ -250,8 +256,33 @@ const SteamIntegration = ({
     onNavigate(target);
   }, [onNavigate]);
 
+  // Cargar y sincronizar favoritos (tanto al montar como al recibir actualizaciones)
   useEffect(() => {
-    saveFavorites(favorites);
+    const loadAndSyncFavorites = async () => {
+      if (window.electronAPI?.getFavorites) {
+        try {
+          const result = await window.electronAPI.getFavorites();
+          if (result?.success) {
+            setFavorites(Array.isArray(result.data) ? result.data : []);
+            return;
+          }
+        } catch (err) {
+          console.error('[SteamIntegration] Error loading favorites via IPC:', err);
+        }
+      }
+      setFavorites(loadFavorites());
+    };
+
+    loadAndSyncFavorites();
+
+    window.addEventListener('favorites-updated', loadAndSyncFavorites);
+    return () => window.removeEventListener('favorites-updated', loadAndSyncFavorites);
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.getFavorites) {
+      saveFavorites(favorites);
+    }
   }, [favorites]);
 
   useEffect(() => {
@@ -682,13 +713,43 @@ const SteamIntegration = ({
   ), [favoritesOnly, activeFavoriteWallpapers, workshopWallpapers, downloadedById, matchesHeaderSearch, showMatureContent]);
 
   const toggleFavorite = useCallback((wallpaper) => {
-    setFavorites(current => {
-      if (current.some(item => item.publishedFileId === wallpaper.publishedFileId)) {
-        return current.filter(item => item.publishedFileId !== wallpaper.publishedFileId);
+    const wallpaperId = getWallpaperId(wallpaper) || wallpaper.publishedFileId || wallpaper.id;
+    if (!wallpaperId) return;
+
+    setFavorites(prev => {
+      const exists = prev.some(item => (getWallpaperId(item) || item.publishedFileId || item.id) === wallpaperId);
+      const nextFavorites = exists
+        ? prev.filter(item => (getWallpaperId(item) || item.publishedFileId || item.id) !== wallpaperId)
+        : [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...prev];
+
+      // Electron: persist via IPC (do NOT use localStorage as source of truth)
+      if (window.electronAPI?.addFavorite && window.electronAPI?.removeFavorite) {
+        (async () => {
+          try {
+            if (exists) {
+              await window.electronAPI.removeFavorite(wallpaperId);
+            } else {
+              await window.electronAPI.addFavorite(wallpaper);
+            }
+
+            // Re-sincroniza SIEMPRE desde IPC para evitar cualquier desincronización.
+            const result = await window.electronAPI.getFavorites?.();
+            if (result?.success) setFavorites(Array.isArray(result.data) ? result.data : []);
+          } catch (e) {
+            console.error('[SteamIntegration] Error persisting favorite via IPC:', e);
+          }
+        })();
+      } else {
+        // Web fallback
+        saveFavorites(nextFavorites);
       }
 
-      recordWallpaperInteraction(wallpaper, 'like');
-      return [{ ...wallpaper, favoriteAddedAt: Date.now() }, ...current];
+      // Sincroniza UI con otros componentes
+      window.dispatchEvent(new CustomEvent('favorites-updated', {
+        detail: { wallpaper, isFavorite: !exists }
+      }));
+
+      return nextFavorites;
     });
   }, []);
 

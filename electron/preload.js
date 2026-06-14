@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   getSteamWallpapers: () => ipcRenderer.invoke('get-steam-wallpapers'),
   getDownloadedWallpapers: () => ipcRenderer.invoke('get-downloaded-wallpapers'),
+
+  getFavorites: () => ipcRenderer.invoke('get-favorites'),
+  addFavorite: (wallpaper) => ipcRenderer.invoke('add-favorite', wallpaper),
+  removeFavorite: (wallpaperId) => ipcRenderer.invoke('remove-favorite', wallpaperId),
   setSteamPath: (path) => ipcRenderer.invoke('set-steam-path', path),
   setWallpaper: (wallpaperPath) => ipcRenderer.invoke('set-wallpaper', wallpaperPath),
   downloadWallpaperFile: (options) => ipcRenderer.invoke('download-wallpaper-file', options),

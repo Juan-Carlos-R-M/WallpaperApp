@@ -48,17 +48,45 @@ const Gallery = ({
   const [onlineRelatedWallpapers, setOnlineRelatedWallpapers] = useState([]);
   const observerTarget = useRef(null);
   const nextPageRef = useRef(1);
+  const lastRequestedPageRef = useRef(0);
+  const fetchWallpapersRef = useRef(null);
+  const isFetchingRef = useRef(false);
+
+  // Reserva de página para que el observer no pueda "desfasarse" con updates de estado
+  const reservedPageRef = useRef(1);
 
   useEffect(() => {
-    try {
-      const savedSubscriptions = safeGetItem('wallpaperApp.subscriptions', {});
-      const savedFavorites = safeGetItem('wallpaperApp.workshopFavorites', []);
-      setSubscriptions(savedSubscriptions);
-      setFavorites(savedFavorites);
-    } catch {
-      setSubscriptions({});
-      setFavorites([]);
-    }
+    const loadAndSyncFavorites = async () => {
+      try {
+        // Electron (source of truth): favorites.json via IPC
+        if (window.electronAPI?.getFavorites) {
+          const result = await window.electronAPI.getFavorites();
+          if (result?.success) {
+            setFavorites(Array.isArray(result.data) ? result.data : []);
+            return;
+          }
+        }
+
+        // Web fallback
+        const savedFavorites = safeGetItem('wallpaperApp.workshopFavorites', []);
+        setFavorites(savedFavorites);
+      } catch {
+        setFavorites([]);
+      }
+    };
+
+    (async () => {
+      try {
+        const savedSubscriptions = safeGetItem('wallpaperApp.subscriptions', {});
+        setSubscriptions(savedSubscriptions);
+      } catch {
+        setSubscriptions({});
+      }
+      await loadAndSyncFavorites();
+    })();
+
+    window.addEventListener('favorites-updated', loadAndSyncFavorites);
+    return () => window.removeEventListener('favorites-updated', loadAndSyncFavorites);
   }, []);
 
   useEffect(() => {
@@ -80,16 +108,60 @@ const Gallery = ({
   }, []);
 
   const toggleFavorite = useCallback((wallpaper) => {
+    const wallpaperId = getWallpaperId(wallpaper);
+
+    // Debug: log que nos dice qué objeto viaja a IPC.
+    // (si id es undefined, LocalStore puede no escribir como esperas)
+    console.log('[Favorites] toggleFavorite wallpaperId=', wallpaperId, 'wallpaper=', wallpaper);
+    console.log('[Favorites] IPC exists:', {
+      electron: Boolean(window?.electronAPI),
+      addFavorite: Boolean(window?.electronAPI?.addFavorite),
+      removeFavorite: Boolean(window?.electronAPI?.removeFavorite),
+      getFavorites: Boolean(window?.electronAPI?.getFavorites)
+    });
+
+
     setFavorites(prev => {
-      const exists = prev.some(item => getWallpaperId(item) === getWallpaperId(wallpaper));
+      const exists = prev.some(item => getWallpaperId(item) === wallpaperId);
       const nextFavorites = exists
-        ? prev.filter(item => getWallpaperId(item) !== getWallpaperId(wallpaper))
+        ? prev.filter(item => getWallpaperId(item) !== wallpaperId)
         : [wallpaper, ...prev];
 
-      localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
+      // Electron: persist via IPC (do NOT use localStorage as source of truth)
+      if (window.electronAPI?.addFavorite && window.electronAPI?.removeFavorite) {
+        (async () => {
+          try {
+            if (exists) {
+              await window.electronAPI.removeFavorite(wallpaperId);
+            } else {
+              await window.electronAPI.addFavorite(wallpaper);
+            }
+
+            // Re-sincroniza SIEMPRE desde IPC para evitar cualquier desincronización.
+            const result = await window.electronAPI.getFavorites?.();
+            if (result?.success) setFavorites(Array.isArray(result.data) ? result.data : []);
+          } catch (e) {
+            // Fallback: intenta recargar igualmente
+            try {
+              const result = await window.electronAPI.getFavorites?.();
+              if (result?.success) setFavorites(Array.isArray(result.data) ? result.data : []);
+            } catch {}
+          }
+        })();
+      } else {
+        // Web fallback
+        localStorage.setItem('wallpaperApp.workshopFavorites', JSON.stringify(nextFavorites));
+      }
+
+      // Sincroniza UI con WallpaperCard (listener legacy)
+      window.dispatchEvent(new CustomEvent('favorites-updated', {
+        detail: { wallpaper, isFavorite: !exists }
+      }));
+
       return nextFavorites;
     });
   }, []);
+
 
   const isFavorite = useCallback((wallpaper) => (
     favorites.some(item => getWallpaperId(item) === getWallpaperId(wallpaper))
@@ -213,40 +285,78 @@ const Gallery = ({
   useEffect(() => {
     setPage(1);
     nextPageRef.current = 2;
+    reservedPageRef.current = 1;
+    lastRequestedPageRef.current = 0;
+    isFetchingRef.current = false;
+
     setWallpapers([]);
-    fetchWallpapers(1, true);
-  }, [category, search, fetchWallpapers]);
+    setHasMore(true);
+
+    // Evita bucle: no dependemos de `fetchWallpapers` (que cambia por `loading`)
+    // solo disparamos una vez por cambios de inputs reales.
+    Promise.resolve().then(() => {
+      fetchWallpapersRef.current?.(1, true);
+    });
+  }, [category, search]);
+
+
+  // NOTE: intencionalmente NO recalculamos nextPageRef con [page].
+  // El cálculo de la siguiente página se hace de forma consistente con reservedPageRef
+  // para evitar bucles cuando el sentinel permanece intersectando.
 
   useEffect(() => {
-    nextPageRef.current = page + 1;
-  }, [page]);
+    fetchWallpapersRef.current = fetchWallpapers;
+  }, [fetchWallpapers]);
 
   useEffect(() => {
+    if (!hasMore) return undefined;
+
+    let cancelled = false;
+
     const observer = new IntersectionObserver(
       entries => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          // Usar nextPageRef.current directamente en lugar de fetchWallpapers
-          const currentFetch = fetchWallpapers;
-          if (currentFetch && nextPageRef.current) {
-            currentFetch(nextPageRef.current);
-          }
-        }
+        if (cancelled) return;
+        if (!entries?.[0]?.isIntersecting) return;
+        if (loading) return;
+        if (!hasMore) return;
+        if (isFetchingRef.current) return;
+
+        const nextPage = reservedPageRef.current;
+
+        // Anti-bucle adicional:
+        if (!nextPage || nextPage === lastRequestedPageRef.current) return;
+
+        // Reservar inmediatamente para que, aunque el sentinel siga visible,
+        // no volvamos a solicitar la misma página.
+        const reservedBefore = reservedPageRef.current;
+        reservedPageRef.current = nextPage + 1;
+        lastRequestedPageRef.current = nextPage;
+
+        if (typeof fetchWallpapersRef.current !== 'function') return;
+
+        isFetchingRef.current = true;
+
+        Promise.resolve(fetchWallpapersRef.current(nextPage))
+          .catch(() => {
+            // Si falla la carga, permitimos volver a intentar esa misma página
+            reservedPageRef.current = reservedBefore;
+          })
+          .finally(() => {
+            isFetchingRef.current = false;
+          });
       },
       { threshold: 0.1, rootMargin: '300px' }
     );
 
     const currentTarget = observerTarget.current;
-    if (currentTarget) {
-      observer.observe(currentTarget);
-    }
+    if (currentTarget) observer.observe(currentTarget);
 
     return () => {
-      if (currentTarget) {
-        observer.unobserve(currentTarget);
-      }
+      cancelled = true;
       observer.disconnect();
     };
-  }, [hasMore, loading, fetchWallpapers]);
+  }, [hasMore, loading]);
+
 
   const handleOpenDetails = (wallpaper) => {
     const enriched = enrichWallpaperMetadata(wallpaper);
